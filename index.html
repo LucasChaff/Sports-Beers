@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NBA Playoffs 2025 — Pronostics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  /* ─── RESET & TOKENS ─────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:       #0a0a0f;
+    --surface:  #111118;
+    --card:     #18181f;
+    --border:   rgba(255,255,255,0.07);
+    --border2:  rgba(255,255,255,0.14);
+    --text:     #f0f0f5;
+    --muted:    rgba(240,240,245,0.45);
+    --dim:      rgba(240,240,245,0.2);
+    --orange:   #f7640a;
+    --orange2:  #ff8f3c;
+    --blue:     #2f7aff;
+    --green:    #22c55e;
+    --red:      #ef4444;
+    --amber:    #f59e0b;
+    --purple:   #a855f7;
+    --r:        10px;
+    --r2:       16px;
+  }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── LAYOUT ─────────────────────────────────────── */
+  #app { max-width: 480px; margin: 0 auto; padding: 0 0 6rem; }
+  .page { display: none; padding: 0; }
+  .page.active { display: block; }
+
+  /* ─── HEADER ─────────────────────────────────────── */
+  .app-header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(10,10,15,0.9);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.25rem 0;
+  }
+  .header-top { display: flex; align-items: center; gap: 10px; margin-bottom: 1rem; }
+  .logo-badge {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--orange); display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .header-title { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 0.05em; }
+  .header-player {
+    margin-left: auto; font-size: 12px; color: var(--muted);
+    background: rgba(255,255,255,0.06); border-radius: 20px;
+    padding: 4px 10px; cursor: pointer; transition: background .2s;
+  }
+  .header-player:hover { background: rgba(255,255,255,0.1); }
+
+  /* ─── NAV ────────────────────────────────────────── */
+  nav { display: flex; gap: 0; }
+  .nav-btn {
+    flex: 1; padding: 10px 4px; text-align: center; font-size: 11px; font-weight: 500;
+    color: var(--muted); border: none; background: none; cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all .2s; letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+  .nav-btn.active { color: var(--orange); border-bottom-color: var(--orange); }
+
+  /* ─── SECTION HEADERS ────────────────────────────── */
+  .section-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted);
+    padding: 1.25rem 1.25rem 0.5rem;
+  }
+
+  /* ─── CARDS ──────────────────────────────────────── */
+  .card {
+    margin: 0 1rem 0.75rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r2);
+    padding: 1rem 1.125rem;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: var(--border2); }
+  .card-row { display: flex; align-items: center; gap: 10px; }
+
+  /* ─── FORM ELEMENTS ──────────────────────────────── */
+  input, select, textarea {
+    width: 100%; background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border2); border-radius: var(--r);
+    color: var(--text); font-family: 'DM Sans', sans-serif;
+    font-size: 14px; padding: 10px 12px; outline: none;
+    transition: border-color .2s;
+  }
+  input:focus, select:focus { border-color: var(--orange); }
+  select option { background: #18181f; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+
+  /* ─── BUTTONS ────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    border: 1px solid var(--border2); border-radius: var(--r);
+    background: transparent; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+    padding: 10px 18px; cursor: pointer; transition: all .2s; white-space: nowrap;
+  }
+  .btn:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.25); }
+  .btn-primary { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .btn-primary:hover { background: var(--orange2); border-color: var(--orange2); }
+  .btn-sm { font-size: 12px; padding: 6px 12px; }
+  .btn-block { width: 100%; }
+  .btn-ghost { border-color: transparent; color: var(--muted); }
+  .btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.05); border-color: var(--border2); }
+  .btn-danger { border-color: rgba(239,68,68,0.3); color: var(--red); }
+  .btn-danger:hover { background: rgba(239,68,68,0.1); }
+
+  /* ─── BADGES ─────────────────────────────────────── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 500; padding: 3px 8px;
+    border-radius: 20px; border: 1px solid;
+  }
+  .badge-orange { background: rgba(247,100,10,0.15); border-color: rgba(247,100,10,0.3); color: var(--orange2); }
+  .badge-green { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.25); color: var(--green); }
+  .badge-red { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.25); color: var(--red); }
+  .badge-amber { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.25); color: var(--amber); }
+  .badge-blue { background: rgba(47,122,255,0.12); border-color: rgba(47,122,255,0.25); color: #6aa3ff; }
+  .badge-gray { background: rgba(255,255,255,0.07); border-color: var(--border2); color: var(--muted); }
+  .badge-purple { background: rgba(168,85,247,0.12); border-color: rgba(168,85,247,0.25); color: #c084fc; }
+
+  /* ─── VERSUS CARD ────────────────────────────────── */
+  .versus-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px;
+  }
+  .team-name { font-size: 15px; font-weight: 600; flex: 1; }
+  .team-name.right { text-align: right; }
+  .vs-circle {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(255,255,255,0.07);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  /* ─── LEADERBOARD ────────────────────────────────── */
+  .lb-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .lb-row:last-child { border-bottom: none; }
+  .lb-rank { font-family: 'Bebas Neue', sans-serif; font-size: 22px; min-width: 28px; }
+  .lb-rank.r1 { color: #f59e0b; }
+  .lb-rank.r2 { color: #9ca3af; }
+  .lb-rank.r3 { color: #cd7f32; }
+  .lb-avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 600; flex-shrink: 0;
+  }
+  .lb-info { flex: 1; }
+  .lb-name { font-size: 15px; font-weight: 500; }
+  .lb-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .lb-pts { text-align: right; }
+  .lb-pts-num { font-family: 'Bebas Neue', sans-serif; font-size: 26px; color: var(--orange); line-height: 1; }
+  .lb-pts-label { font-size: 10px; color: var(--muted); }
+
+  /* ─── TOAST ──────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 5.5rem; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: #1e1e2a; border: 1px solid var(--border2); border-radius: 30px;
+    padding: 10px 20px; font-size: 13px; color: var(--text);
+    opacity: 0; transition: all .3s; z-index: 999; white-space: nowrap;
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ─── GAME PICKER ────────────────────────────────── */
+  .games-grid { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .game-chip {
+    flex: 1; min-width: 60px; padding: 8px 4px; text-align: center;
+    border-radius: var(--r); border: 1px solid var(--border2);
+    font-size: 13px; cursor: pointer; color: var(--muted);
+    transition: all .15s; background: transparent;
+  }
+  .game-chip.selected { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .game-chip:hover:not(.selected) { border-color: rgba(255,255,255,0.25); color: var(--text); }
+
+  /* ─── TEAM SELECTOR ──────────────────────────────── */
+  .team-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+  .team-choice {
+    padding: 10px 8px; border-radius: var(--r); border: 1px solid var(--border2);
+    text-align: center; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--muted);
+    transition: all .15s; background: transparent;
+  }
+  .team-choice.selected { background: rgba(47,122,255,0.15); border-color: var(--blue); color: #6aa3ff; }
+  .team-choice:hover:not(.selected) { border-color: rgba(255,255,255,0.25); color: var(--text); }
+
+  /* ─── SETTINGS ───────────────────────────────────── */
+  .setting-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label { flex: 1; font-size: 14px; }
+  .setting-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .setting-input { width: 70px; text-align: center; }
+
+  /* ─── PREDICTION REVEAL ──────────────────────────── */
+  .reveal-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .reveal-row:last-child { border-bottom: none; }
+  .reveal-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; flex-shrink: 0;
+  }
+
+  /* ─── TABS INSIDE CARD ───────────────────────────── */
+  .inner-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .inner-tab {
+    font-size: 12px; padding: 5px 12px; border-radius: 20px; cursor: pointer;
+    border: 1px solid var(--border2); color: var(--muted); background: none;
+    transition: all .15s;
+  }
+  .inner-tab.active { background: rgba(247,100,10,0.15); border-color: rgba(247,100,10,0.3); color: var(--orange2); }
+
+  /* ─── LOADING ────────────────────────────────────── */
+  .loading-screen {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; gap: 16px;
+  }
+  .spinner {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 3px solid var(--border2); border-top-color: var(--orange);
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── EMPTY STATE ────────────────────────────────── */
+  .empty { text-align: center; padding: 2.5rem 1rem; color: var(--muted); font-size: 14px; }
+  .empty-icon { font-size: 32px; margin-bottom: 10px; }
+
+  /* ─── STATUS DOT ─────────────────────────────────── */
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot-orange { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+  .dot-gray { background: var(--muted); }
+
+  /* ─── DIVIDER ────────────────────────────────────── */
+  .divider { height: 1px; background: var(--border); margin: 10px 0; }
+
+  /* ─── GRID ───────────────────────────────────────── */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  /* ─── ONBOARDING ─────────────────────────────────── */
+  .onboard-wrap {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 2rem;
+  }
+  .onboard-card {
+    width: 100%; max-width: 380px;
+    background: var(--card); border: 1px solid var(--border2);
+    border-radius: 24px; padding: 2rem;
+  }
+  .onboard-icon {
+    font-size: 48px; text-align: center; margin-bottom: 1rem;
+  }
+  .onboard-title {
+    font-family: 'Bebas Neue', sans-serif; font-size: 32px; text-align: center;
+    color: var(--orange); letter-spacing: 0.05em; margin-bottom: 0.5rem;
+  }
+  .onboard-sub { font-size: 14px; color: var(--muted); text-align: center; margin-bottom: 1.5rem; }
+
+  /* ─── POINTS BREAKDOWN ───────────────────────────── */
+  .pts-breakdown {
+    display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;
+  }
+  .pts-chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 20px;
+    background: rgba(255,255,255,0.06); color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .pts-chip.earned { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.25); color: var(--green); }
+
+  /* ─── TIMER ──────────────────────────────────────── */
+  .countdown { font-family: 'DM Mono', monospace; font-size: 13px; color: var(--amber); }
+
+  /* ─── SCROLLBAR ──────────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+// CONFIGURATION — remplace par tes clés Supabase
+// ─────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://cysdrfunrmwnfmtfymdr.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_i-OAToWfVEsavZRK2EwcYw_Pn1nkXGS';
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────
+let state = {
+  loading: true,
+  currentPage: 'leaderboard',
+  currentPlayer: null,   // {id, name, avatar_color}
+  showOnboarding: false,
+  adminAuthed: false,
+  adminPage: 'series',   // 'series' | 'settings'
+  series: [],
+  games: {},             // {series_id: [game, ...]}
+  predictions: [],       // all predictions
+  players: [],
+  settings: {},
+  leaderboard: [],
+};
+
+// ─────────────────────────────────────────────────────────────
+// INIT & LOAD
+// ─────────────────────────────────────────────────────────────
+async function init() {
+  // Restore player from localStorage
+  const saved = localStorage.getItem('nba25_player');
+  if (saved) { try { state.currentPlayer = JSON.parse(saved); } catch(e){} }
+
+  await loadAll();
+  subscribeRealtime();
+  state.loading = false;
+  if (!state.currentPlayer) state.showOnboarding = true;
+  render();
+}
+
+async function loadAll() {
+  await Promise.all([loadSettings(), loadSeries(), loadPlayers(), loadPredictions()]);
+  await loadLeaderboard();
+}
+
+async function loadSettings() {
+  const { data } = await sb.from('settings').select('*');
+  if (data) data.forEach(r => { state.settings[r.key] = r.value; });
+}
+
+async function loadSeries() {
+  const { data } = await sb.from('series').select('*').order('created_at', { ascending: true });
+  state.series = data || [];
+  // Load games for each series
+  const { data: games } = await sb.from('games').select('*').order('game_number');
+  state.games = {};
+  (games || []).forEach(g => {
+    if (!state.games[g.series_id]) state.games[g.series_id] = [];
+    state.games[g.series_id].push(g);
+  });
+}
+
+async function loadPlayers() {
+  const { data } = await sb.from('players').select('*').order('created_at');
+  state.players = data || [];
+}
+
+async function loadPredictions() {
+  const { data } = await sb.from('predictions').select('*');
+  state.predictions = data || [];
+}
+
+async function loadLeaderboard() {
+  const { data } = await sb.from('leaderboard').select('*');
+  state.leaderboard = data || [];
+}
+
+// ─────────────────────────────────────────────────────────────
+// REALTIME
+// ─────────────────────────────────────────────────────────────
+function subscribeRealtime() {
+  sb.channel('db-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'series' }, () => loadSeries().then(render))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => loadSeries().then(render))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'predictions' }, () => { loadPredictions(); loadLeaderboard().then(render); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => loadPlayers().then(render))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, () => loadSettings().then(render))
+    .subscribe();
+}
+
+// ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+function toast(msg, ms = 2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), ms);
+}
+
+function avatarColor(name) {
+  const colors = ['#f7640a','#2f7aff','#22c55e','#a855f7','#f59e0b','#ef4444','#06b6d4','#ec4899'];
+  let h = 0;
+  for (let c of name) h = (h * 31 + c.charCodeAt(0)) % colors.length;
+  return colors[h];
+}
+
+function initials(name) {
+  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function isLocked(series) {
+  if (series.status === 'locked' || series.status === 'finished') return true;
+  if (series.start_time) return new Date() >= new Date(series.start_time);
+  return false;
+}
+
+function getPrediction(playerId, seriesId) {
+  return state.predictions.find(p => p.player_id === playerId && p.series_id === seriesId);
+}
+
+function getPlayerPred(seriesId) {
+  if (!state.currentPlayer) return null;
+  return getPrediction(state.currentPlayer.id, seriesId);
+}
+
+function allPredictionsForSeries(seriesId) {
+  return state.predictions.filter(p => p.series_id === seriesId);
+}
+
+function getPlayer(id) {
+  return state.players.find(p => p.id === id);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ACTIONS
+// ─────────────────────────────────────────────────────────────
+async function createPlayer(name) {
+  const color = avatarColor(name);
+  const { data, error } = await sb.from('players').insert({ name, avatar_color: color }).select().single();
+  if (error) { toast('❌ Erreur : ' + (error.message || 'nom déjà pris ?')); return null; }
+  return data;
+}
+
+async function savePrediction(seriesId, seriesWinner, seriesGames, gamePreds) {
+  if (!state.currentPlayer) return;
+  const existing = getPlayerPred(seriesId);
+  const payload = {
+    player_id: state.currentPlayer.id,
+    series_id: seriesId,
+    predicted_series_winner: seriesWinner,
+    predicted_series_games: seriesGames,
+    game_predictions: gamePreds,
+    updated_at: new Date().toISOString(),
+  };
+  if (existing) {
+    await sb.from('predictions').update(payload).eq('id', existing.id);
+  } else {
+    await sb.from('predictions').insert(payload);
+  }
+  await loadPredictions();
+  await loadLeaderboard();
+  toast('✅ Pronostic enregistré !');
+}
+
+async function addSeries(t1, t2, round, conf, startTime) {
+  await sb.from('series').insert({ team1: t1, team2: t2, round, conference: conf, start_time: startTime || null, status: 'upcoming' });
+  await loadSeries();
+  toast('✅ Série ajoutée');
+}
+
+async function setSeriesResult(id, winner, games) {
+  await sb.from('series').update({ series_winner: winner, series_games: games, status: 'finished' }).eq('id', id);
+  await sb.rpc('recalculate_points', { p_series_id: id });
+  await loadSeries(); await loadPredictions(); await loadLeaderboard();
+  toast('🏆 Résultat enregistré & points calculés !');
+}
+
+async function setGameResult(gameId, seriesId, winner) {
+  await sb.from('games').update({ winner, status: 'finished' }).eq('id', gameId);
+  await sb.rpc('recalculate_points', { p_series_id: seriesId });
+  await loadSeries(); await loadPredictions(); await loadLeaderboard();
+  toast('✅ Résultat du match enregistré');
+}
+
+async function lockSeries(id) {
+  await sb.from('series').update({ status: 'locked' }).eq('id', id);
+  await loadSeries(); toast('🔒 Série verrouillée');
+}
+
+async function deleteSeries(id) {
+  if (!confirm('Supprimer cette série ?')) return;
+  await sb.from('series').delete().eq('id', id);
+  await loadSeries(); await loadPredictions(); await loadLeaderboard();
+  toast('🗑 Série supprimée');
+}
+
+async function addGame(seriesId, gameNumber, startTime) {
+  await sb.from('games').insert({ series_id: seriesId, game_number: gameNumber, start_time: startTime || null, status: 'upcoming' });
+  await loadSeries(); toast('✅ Match ajouté');
+}
+
+async function saveSettings(updates) {
+  for (const [key, value] of Object.entries(updates)) {
+    await sb.from('settings').update({ value: JSON.stringify(value) }).eq('key', key);
+  }
+  await loadSettings(); toast('✅ Paramètres sauvegardés'); render();
+}
+
+// ─────────────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────────────
+function render() {
+  const root = document.getElementById('root');
+
+  if (state.loading) {
+    root.innerHTML = `<div class="loading-screen"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">Chargement...</div></div>`;
+    return;
+  }
+
+  if (state.showOnboarding) {
+    root.innerHTML = renderOnboarding();
+    return;
+  }
+
+  root.innerHTML = `
+    <div id="app">
+      <div class="app-header">
+        <div class="header-top">
+          <div class="logo-badge">🏀</div>
+          <span class="header-title">NBA Playoffs 2025</span>
+          <span class="header-player" onclick="switchPlayer()">👤 ${state.currentPlayer?.name || '—'}</span>
+        </div>
+        <nav>
+          <button class="nav-btn ${state.currentPage==='leaderboard'?'active':''}" onclick="nav('leaderboard')">Classement</button>
+          <button class="nav-btn ${state.currentPage==='predictions'?'active':''}" onclick="nav('predictions')">Pronostics</button>
+          <button class="nav-btn ${state.currentPage==='series'?'active':''}" onclick="nav('series')">Séries</button>
+          <button class="nav-btn ${state.currentPage==='admin'?'active':''}" onclick="nav('admin')">⚙️ Admin</button>
+        </nav>
+      </div>
+
+      <div class="page ${state.currentPage==='leaderboard'?'active':''}" id="page-leaderboard">
+        ${renderLeaderboard()}
+      </div>
+      <div class="page ${state.currentPage==='predictions'?'active':''}" id="page-predictions">
+        ${renderPredictions()}
+      </div>
+      <div class="page ${state.currentPage==='series'?'active':''}" id="page-series">
+        ${renderSeriesPage()}
+      </div>
+      <div class="page ${state.currentPage==='admin'?'active':''}" id="page-admin">
+        ${renderAdmin()}
+      </div>
+    </div>
+    <div id="toast"></div>
+  `;
+}
+
+function nav(page) { state.currentPage = page; render(); }
+function switchPlayer() {
+  if (confirm('Changer de joueur ?')) { state.currentPlayer = null; state.showOnboarding = true; render(); }
+}
+
+// ─── ONBOARDING ───────────────────────────────────────────────
+function renderOnboarding() {
+  return `
+  <div class="onboard-wrap">
+    <div class="onboard-card">
+      <div class="onboard-icon">🏀</div>
+      <div class="onboard-title">Playoffs 2025</div>
+      <div class="onboard-sub">Qui es-tu ? Entre ton prénom pour rejoindre la compétition !</div>
+      <div style="margin-bottom:12px">
+        <label>Ton prénom</label>
+        <input id="ob-name" type="text" placeholder="Ex: Marie" maxlength="20" style="margin-top:4px"
+          onkeydown="if(event.key==='Enter')onboardSubmit()">
+      </div>
+      ${state.players.length > 0 ? `
+        <div style="margin-bottom:16px">
+          <label style="margin-bottom:6px">Ou choisis ton profil existant</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${state.players.map(p => `
+              <button class="btn btn-sm" onclick="selectExistingPlayer('${p.id}')">
+                <span style="width:20px;height:20px;border-radius:50%;background:${p.avatar_color};display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:600">${initials(p.name)}</span>
+                ${p.name}
+              </button>`).join('')}
+          </div>
+        </div>` : ''}
+      <button class="btn btn-primary btn-block" onclick="onboardSubmit()">Commencer →</button>
+    </div>
+  </div>`;
+}
+
+async function onboardSubmit() {
+  const name = document.getElementById('ob-name').value.trim();
+  if (!name) return toast('Entre un prénom !');
+  const existing = state.players.find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (existing) { setCurrentPlayer(existing); return; }
+  const player = await createPlayer(name);
+  if (player) { setCurrentPlayer(player); await loadPlayers(); }
+}
+
+async function selectExistingPlayer(id) {
+  const p = state.players.find(p => p.id === id);
+  if (p) setCurrentPlayer(p);
+}
+
+function setCurrentPlayer(p) {
+  state.currentPlayer = p;
+  localStorage.setItem('nba25_player', JSON.stringify(p));
+  state.showOnboarding = false;
+  render();
+}
+
+// ─── LEADERBOARD ──────────────────────────────────────────────
+function renderLeaderboard() {
+  const lb = state.leaderboard;
+  if (lb.length === 0) return `<div class="empty"><div class="empty-icon">🏆</div>Personne n'a encore pronostiqué !</div>`;
+  const medals = ['🥇','🥈','🥉'];
+  return `
+    <div class="section-label">Classement général</div>
+    <div class="card">
+      ${lb.map((p, i) => `
+        <div class="lb-row" style="${p.id===state.currentPlayer?.id?'background:rgba(247,100,10,0.04);margin:0 -1.125rem;padding:10px 1.125rem;border-radius:8px;':''}">
+          <span class="lb-rank ${i<3?'r'+(i+1):''}">
+            ${medals[i] || (i+1)}
+          </span>
+          <div class="lb-avatar" style="background:${p.avatar_color}22;color:${p.avatar_color}">${initials(p.name)}</div>
+          <div class="lb-info">
+            <div class="lb-name">${p.name}${p.id===state.currentPlayer?.id?' <span style="font-size:10px;color:var(--orange)">toi</span>':''}</div>
+            <div class="lb-sub">${p.correct_predictions} pronostic(s) correct(s) sur ${p.predictions_count}</div>
+          </div>
+          <div class="lb-pts">
+            <div class="lb-pts-num">${p.total_points}</div>
+            <div class="lb-pts-label">pts</div>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="section-label">Détail des points</div>
+    <div class="card" style="font-size:12px;color:var(--muted)">
+      <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:4px 12px;align-items:center">
+        <span></span>
+        <span style="text-align:right;font-weight:500">🏀 Matchs</span>
+        <span style="text-align:right;font-weight:500">📊 Série</span>
+        <span style="text-align:right;font-weight:500">🎯 Exact</span>
+        ${lb.map(p => `
+          <span style="color:var(--text)">${p.name}</span>
+          <span style="text-align:right;color:var(--blue)">${p.points_games}</span>
+          <span style="text-align:right;color:var(--orange)">${p.points_series_winner}</span>
+          <span style="text-align:right;color:var(--green)">${p.points_series_exact}</span>`).join('')}
+      </div>
+    </div>`;
+}
+
+// ─── PREDICTIONS ───────────────────────────────────────────────
+function renderPredictions() {
+  const rounds = [...new Set(state.series.map(s => s.round))];
+  if (state.series.length === 0) return `<div class="empty"><div class="empty-icon">📋</div>Aucune série disponible.<br>L'admin peut en ajouter.</div>`;
+  return rounds.map(r => {
+    const ss = state.series.filter(s => s.round === r);
+    return `<div class="section-label">${r}</div>` + ss.map(s => renderPredictionCard(s)).join('');
+  }).join('');
+}
+
+function renderPredictionCard(s) {
+  const locked = isLocked(s);
+  const myPred = getPlayerPred(s.id);
+  const allPreds = allPredictionsForSeries(s.id);
+  const pid = s.id.replace(/-/g, '_');
+
+  let statusBadge = '';
+  if (s.status === 'finished') statusBadge = `<span class="badge badge-gray">Terminé</span>`;
+  else if (locked) statusBadge = `<span class="badge badge-amber">🔒 Verrouillé</span>`;
+  else if (s.start_time) statusBadge = `<span class="badge badge-blue">Début: ${fmtDate(s.start_time)}</span>`;
+  else statusBadge = `<span class="badge badge-green">Ouvert</span>`;
+
+  const seriesGames = state.games[s.id] || [];
+  const openGames = seriesGames.filter(g => !isGameLocked(g));
+
+  let content = '';
+
+  if (s.status === 'finished') {
+    // Résultat + mes points + révélation pronostics
+    content = `
+      <div class="divider"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span class="badge badge-green">🏆 ${s.series_winner} en ${s.series_games}</span>
+      </div>
+      ${myPred ? `
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+          <div style="font-size:12px;color:var(--muted)">Mon pronostic</div>
+          <div style="font-size:13px;margin-top:2px">${myPred.predicted_series_winner} en ${myPred.predicted_series_games}</div>
+          <div class="pts-breakdown">
+            ${myPred.points_series_winner > 0 ? `<span class="pts-chip earned">+${myPred.points_series_winner} vainqueur série</span>` : ''}
+            ${myPred.points_series_exact > 0 ? `<span class="pts-chip earned">+${myPred.points_series_exact} score exact</span>` : ''}
+            ${myPred.points_games > 0 ? `<span class="pts-chip earned">+${myPred.points_games} matchs</span>` : ''}
+            ${myPred.total_points === 0 ? `<span class="pts-chip">0 pt cette série</span>` : ''}
+          </div>
+        </div>` : `<div style="font-size:13px;color:var(--muted);margin-bottom:10px">Pas de pronostic pour cette série.</div>`}
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Pronostics de tout le monde</div>
+      ${allPreds.map(pr => {
+        const pl = getPlayer(pr.player_id);
+        if (!pl) return '';
+        const correct = pr.predicted_series_winner === s.series_winner;
+        const exact = correct && pr.predicted_series_games === s.series_games;
+        return `<div class="reveal-row">
+          <div class="reveal-avatar" style="background:${pl.avatar_color}22;color:${pl.avatar_color}">${initials(pl.name)}</div>
+          <span style="flex:1;font-size:13px">${pl.name}</span>
+          <span style="font-size:12px;color:var(--muted)">${pr.predicted_series_winner} en ${pr.predicted_series_games}</span>
+          <span class="badge ${exact?'badge-green':correct?'badge-amber':'badge-red'}" style="margin-left:6px">
+            ${exact?'🎯':correct?'✓':'✗'}
+          </span>
+        </div>`;
+      }).join('')}`;
+  } else if (locked) {
+    // Verrouillé : montrer les pronostics si la série est locked
+    content = `
+      <div class="divider"></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Pronostics révélés (série verrouillée)</div>
+      ${allPreds.length === 0 ? `<div style="font-size:13px;color:var(--muted)">Aucun pronostic déposé.</div>` : 
+        allPreds.map(pr => {
+          const pl = getPlayer(pr.player_id);
+          if (!pl) return '';
+          return `<div class="reveal-row">
+            <div class="reveal-avatar" style="background:${pl.avatar_color}22;color:${pl.avatar_color}">${initials(pl.name)}</div>
+            <span style="flex:1;font-size:13px">${pl.name}</span>
+            <span style="font-size:12px;color:var(--muted)">${pr.predicted_series_winner} en ${pr.predicted_series_games}</span>
+          </div>`;
+        }).join('')}`;
+  } else {
+    // Ouvert : formulaire de pronostic
+    const currentSW = myPred?.predicted_series_winner || '';
+    const currentSG = myPred?.predicted_series_games || null;
+
+    content = `
+      <div class="divider"></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Vainqueur de la série</div>
+      <div class="team-selector" id="sw-${pid}">
+        <button class="team-choice ${currentSW===s.team1?'selected':''}" onclick="selectTeam('${pid}','${s.team1}','${s.team2}')">${s.team1}</button>
+        <button class="team-choice ${currentSW===s.team2?'selected':''}" onclick="selectTeam('${pid}','${s.team2}','${s.team1}')">${s.team2}</button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin:10px 0 6px">Score de la série</div>
+      <div class="games-grid" id="sg-${pid}">
+        ${[4,5,6,7].map(n => `<button class="game-chip ${currentSG===n?'selected':''}" onclick="selectGames('${pid}',${n})">${n} matchs</button>`).join('')}
+      </div>
+      ${myPred ? `<div style="margin-top:10px;font-size:12px;color:var(--muted)">Pronostic actuel : <strong style="color:var(--text)">${myPred.predicted_series_winner} en ${myPred.predicted_series_games}</strong></div>` : ''}
+      <button class="btn btn-primary btn-sm" style="margin-top:12px;width:100%" onclick="submitPrediction('${s.id}','${pid}','${s.team1}','${s.team2}')">
+        ${myPred ? '✏️ Modifier' : '✅ Valider'} mon pronostic série
+      </button>
+
+      ${seriesGames.length > 0 ? `
+        <div class="divider" style="margin-top:14px"></div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Pronostics par match</div>
+        ${seriesGames.map(g => renderGamePredRow(g, s, myPred)).join('')}` : ''}`;
+  }
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+        <div style="font-size:10px;color:var(--muted)">${s.conference ? s.conference + ' · ' : ''}${s.round}</div>
+        ${statusBadge}
+      </div>
+      <div class="versus-row">
+        <span class="team-name">${s.team1}</span>
+        <div class="vs-circle">VS</div>
+        <span class="team-name right">${s.team2}</span>
+      </div>
+      ${content}
+    </div>`;
+}
+
+function renderGamePredRow(g, s, myPred) {
+  const locked = isGameLocked(g);
+  const gamePreds = myPred?.game_predictions || [];
+  const myGPred = gamePreds.find(p => p.game_number === g.game_number);
+  const gid = `${s.id.replace(/-/g,'_')}_g${g.game_number}`;
+
+  if (g.status === 'finished') {
+    const correct = myGPred?.predicted_winner === g.winner;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span style="color:var(--muted);min-width:60px">Match ${g.game_number}</span>
+      <span style="flex:1">🏆 ${g.winner}</span>
+      ${myGPred ? `<span class="badge ${correct?'badge-green':'badge-red'}">${myGPred.predicted_winner} ${correct?'✓':'✗'}</span>` : '<span style="color:var(--muted)">—</span>'}
+    </div>`;
+  } else if (locked) {
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span style="color:var(--muted);min-width:60px">Match ${g.game_number}</span>
+      <span style="flex:1;color:var(--muted)">${fmtDate(g.start_time)}</span>
+      ${myGPred ? `<span class="badge badge-amber">🔒 ${myGPred.predicted_winner}</span>` : '<span class="badge badge-gray">Sans pronostic</span>'}
+    </div>`;
+  } else {
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Match ${g.game_number} · ${fmtDate(g.start_time)}</div>
+      <div class="team-selector" id="${gid}" style="margin-bottom:0">
+        <button class="team-choice ${myGPred?.predicted_winner===s.team1?'selected':''}" onclick="selectGameWinner('${s.id}','${gid}',${g.game_number},'${s.team1}','${s.team2}')">${s.team1}</button>
+        <button class="team-choice ${myGPred?.predicted_winner===s.team2?'selected':''}" onclick="selectGameWinner('${s.id}','${gid}',${g.game_number},'${s.team2}','${s.team1}')">${s.team2}</button>
+      </div>
+    </div>`;
+  }
+}
+
+function isGameLocked(g) {
+  if (g.status === 'locked' || g.status === 'finished') return true;
+  if (g.start_time) return new Date() >= new Date(g.start_time);
+  return false;
+}
+
+// Prediction temp state (in-memory)
+const predTemp = {};
+
+function selectTeam(pid, team, other) {
+  if (!predTemp[pid]) predTemp[pid] = {};
+  predTemp[pid].winner = team;
+  document.querySelectorAll(`#sw-${pid} .team-choice`).forEach(b => {
+    b.classList.toggle('selected', b.textContent.trim() === team);
+  });
+}
+
+function selectGames(pid, n) {
+  if (!predTemp[pid]) predTemp[pid] = {};
+  predTemp[pid].games = n;
+  document.querySelectorAll(`#sg-${pid} .game-chip`).forEach(b => {
+    b.classList.toggle('selected', parseInt(b.textContent) === n);
+  });
+}
+
+function selectGameWinner(seriesId, gid, gameNumber, team, other) {
+  const key = `gp_${seriesId}`;
+  if (!predTemp[key]) predTemp[key] = {};
+  if (!predTemp[key].gamePreds) predTemp[key].gamePreds = {};
+  predTemp[key].gamePreds[gameNumber] = team;
+  document.querySelectorAll(`#${gid} .team-choice`).forEach(b => {
+    b.classList.toggle('selected', b.textContent.trim() === team);
+  });
+}
+
+async function submitPrediction(seriesId, pid, team1, team2) {
+  const myPred = getPlayerPred(seriesId);
+  const tmp = predTemp[pid] || {};
+  const winner = tmp.winner || myPred?.predicted_series_winner;
+  const games = tmp.games || myPred?.predicted_series_games;
+  if (!winner) return toast('Choisis le vainqueur de la série !');
+  if (!games) return toast('Choisis le nombre de matchs !');
+
+  // Build game predictions array
+  const gpKey = `gp_${seriesId}`;
+  const gpTemp = predTemp[gpKey]?.gamePreds || {};
+  const existingGP = myPred?.game_predictions || [];
+  const seriesGames = state.games[seriesId] || [];
+  const gamePreds = seriesGames.map(g => {
+    const chosen = gpTemp[g.game_number];
+    const existing = existingGP.find(p => p.game_number === g.game_number)?.predicted_winner;
+    const pw = chosen || existing || null;
+    return pw ? { game_number: g.game_number, predicted_winner: pw } : null;
+  }).filter(Boolean);
+
+  await savePrediction(seriesId, winner, games, gamePreds);
+  delete predTemp[pid];
+  render();
+}
+
+// ─── SERIES PAGE ───────────────────────────────────────────────
+function renderSeriesPage() {
+  if (state.series.length === 0) return `<div class="empty"><div class="empty-icon">🏀</div>Aucune série ajoutée.<br>L'admin peut en ajouter.</div>`;
+  const rounds = [...new Set(state.series.map(s => s.round))];
+  return rounds.map(r => {
+    const ss = state.series.filter(s => s.round === r);
+    return `<div class="section-label">${r}</div>` + ss.map(s => {
+      const games = state.games[s.id] || [];
+      const preds = allPredictionsForSeries(s.id);
+      const locked = isLocked(s);
+      return `<div class="card">
+        <div class="versus-row">
+          <span class="team-name">${s.team1}</span>
+          <div class="vs-circle">VS</div>
+          <span class="team-name right">${s.team2}</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          ${s.status==='finished'?`<span class="badge badge-green">🏆 ${s.series_winner} en ${s.series_games}</span>`:
+            locked?`<span class="badge badge-amber">🔒 Verrouillé</span>`:`<span class="badge badge-green">Ouvert</span>`}
+          <span class="badge badge-gray">${preds.length} pronostic(s)</span>
+          ${s.start_time?`<span class="badge badge-blue">⏰ ${fmtDate(s.start_time)}</span>`:''}
+        </div>
+        ${games.length > 0 ? `<div style="margin-top:10px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Matchs de la série</div>
+          ${games.map(g => `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
+            <span style="color:var(--muted);min-width:60px">Match ${g.game_number}</span>
+            <span style="flex:1">${fmtDate(g.start_time)}</span>
+            ${g.status==='finished'?`<span class="badge badge-green">🏆 ${g.winner}</span>`:isGameLocked(g)?`<span class="badge badge-amber">🔒</span>`:`<span class="badge badge-gray">À venir</span>`}
+          </div>`).join('')}
+        </div>` : ''}
+      </div>`;
+    }).join('');
+  }).join('');
+}
+
+// ─── ADMIN ─────────────────────────────────────────────────────
+function renderAdmin() {
+  if (!state.adminAuthed) {
+    return `<div style="padding:2rem 1.25rem">
+      <div class="card">
+        <div style="font-size:15px;font-weight:500;margin-bottom:12px">🔐 Accès administrateur</div>
+        <label>Code admin</label>
+        <input type="password" id="admin-code-input" placeholder="Code..." style="margin-top:4px;margin-bottom:12px"
+          onkeydown="if(event.key==='Enter')checkAdmin()">
+        <button class="btn btn-primary btn-block" onclick="checkAdmin()">Entrer</button>
+      </div>
+    </div>`;
+  }
+
+  return `
+    <div>
+      <div style="display:flex;gap:8px;padding:1rem 1.25rem 0">
+        <button class="btn ${state.adminPage==='series'?'btn-primary':'btn-ghost'} btn-sm" onclick="setAdminPage('series')">Séries & Matchs</button>
+        <button class="btn ${state.adminPage==='settings'?'btn-primary':'btn-ghost'} btn-sm" onclick="setAdminPage('settings')">Paramètres</button>
+      </div>
+      ${state.adminPage === 'series' ? renderAdminSeries() : renderAdminSettings()}
+    </div>`;
+}
+
+function setAdminPage(p) { state.adminPage = p; render(); }
+
+async function checkAdmin() {
+  const code = document.getElementById('admin-code-input').value;
+  const stored = state.settings['admin_password'];
+  if (code === stored) { state.adminAuthed = true; render(); }
+  else toast('❌ Code incorrect');
+}
+
+function renderAdminSeries() {
+  return `
+    <div class="section-label">Ajouter une série</div>
+    <div class="card">
+      <div class="grid2" style="gap:8px;margin-bottom:8px">
+        <div><label>Équipe 1</label><input id="a-t1" placeholder="Boston Celtics" style="margin-top:4px"></div>
+        <div><label>Équipe 2</label><input id="a-t2" placeholder="Miami Heat" style="margin-top:4px"></div>
+      </div>
+      <div class="grid2" style="gap:8px;margin-bottom:8px">
+        <div><label>Tour</label>
+          <select id="a-round" style="margin-top:4px">
+            <option>Premier tour</option>
+            <option>Demi-finales</option>
+            <option>Finales de conférence</option>
+            <option>Finales NBA</option>
+          </select>
+        </div>
+        <div><label>Conférence</label>
+          <select id="a-conf" style="margin-top:4px">
+            <option>Est</option>
+            <option>Ouest</option>
+            <option>—</option>
+          </select>
+        </div>
+      </div>
+      <div><label>Début (verrouillage auto)</label><input id="a-start" type="datetime-local" style="margin-top:4px;margin-bottom:12px"></div>
+      <button class="btn btn-primary btn-block" onclick="adminAddSeries()">Ajouter la série</button>
+    </div>
+
+    <div class="section-label">Gérer les séries</div>
+    ${state.series.length === 0 ? `<div class="empty">Aucune série</div>` : state.series.map(s => renderAdminSeriesCard(s)).join('')}`;
+}
+
+function renderAdminSeriesCard(s) {
+  const locked = isLocked(s);
+  const games = state.games[s.id] || [];
+  const sid = s.id.replace(/-/g,'_');
+  return `<div class="card">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-weight:500;font-size:14px;flex:1">${s.team1} vs ${s.team2}</span>
+      ${s.status==='finished'?`<span class="badge badge-green">Terminé</span>`:locked?`<span class="badge badge-amber">Verrouillé</span>`:`<span class="badge badge-blue">Ouvert</span>`}
+    </div>
+
+    ${s.status !== 'finished' && !locked ? `
+      <button class="btn btn-sm" style="margin-bottom:8px;width:100%" onclick="lockSeries('${s.id}')">🔒 Verrouiller maintenant</button>` : ''}
+
+    ${s.status !== 'finished' ? `
+      <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Entrer le résultat de la série</div>
+        <div class="grid2" style="gap:6px;margin-bottom:6px">
+          <select id="res-w-${sid}" style="font-size:13px">
+            <option value="">Vainqueur...</option>
+            <option value="${s.team1}">${s.team1}</option>
+            <option value="${s.team2}">${s.team2}</option>
+          </select>
+          <select id="res-g-${sid}" style="font-size:13px">
+            <option value="">Nb matchs...</option>
+            ${[4,5,6,7].map(n=>`<option value="${n}">en ${n}</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm btn-block" onclick="adminSetSeriesResult('${s.id}','${sid}')">✅ Valider résultat série</button>
+      </div>` : `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">🏆 ${s.series_winner} en ${s.series_games} matchs</div>`}
+
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Matchs individuels</div>
+    ${games.map(g => `
+      <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span style="min-width:55px;color:var(--muted)">Match ${g.game_number}</span>
+        <span style="flex:1;font-size:11px;color:var(--muted)">${fmtDate(g.start_time)}</span>
+        ${g.status==='finished'?`<span class="badge badge-green">🏆 ${g.winner}</span>`:
+          `<select id="gres-${g.id.replace(/-/g,'_')}" style="font-size:12px;padding:4px 6px;width:auto">
+            <option value="">Résultat...</option>
+            <option value="${s.team1}">${s.team1}</option>
+            <option value="${s.team2}">${s.team2}</option>
+          </select>
+          <button class="btn btn-sm" style="padding:4px 8px;font-size:12px" onclick="adminSetGameResult('${g.id}','${s.id}','${g.id.replace(/-/g,'_')}')">✓</button>`}
+      </div>`).join('')}
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-sm" onclick="adminAddGame('${s.id}','${sid}',${games.length+1})">+ Ajouter match ${games.length+1}</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteSeries('${s.id}')">🗑 Supprimer</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+      <input id="game-time-${sid}" type="datetime-local" style="font-size:12px;padding:5px 8px">
+      <span style="font-size:11px;color:var(--muted);flex:1">Heure du prochain match</span>
+    </div>
+  </div>`;
+}
+
+async function adminAddSeries() {
+  const t1 = document.getElementById('a-t1').value.trim();
+  const t2 = document.getElementById('a-t2').value.trim();
+  const round = document.getElementById('a-round').value;
+  const conf = document.getElementById('a-conf').value;
+  const start = document.getElementById('a-start').value;
+  if (!t1 || !t2) return toast('Remplis les deux équipes !');
+  await addSeries(t1, t2, round, conf, start ? new Date(start).toISOString() : null);
+  render();
+}
+
+async function adminSetSeriesResult(seriesId, sid) {
+  const winner = document.getElementById(`res-w-${sid}`).value;
+  const games = parseInt(document.getElementById(`res-g-${sid}`).value);
+  if (!winner || !games) return toast('Choisis le vainqueur et le nombre de matchs !');
+  await setSeriesResult(seriesId, winner, games);
+  render();
+}
+
+async function adminSetGameResult(gameId, seriesId, gidSafe) {
+  const winner = document.getElementById(`gres-${gidSafe}`).value;
+  if (!winner) return toast('Choisis le vainqueur !');
+  await setGameResult(gameId, seriesId, winner);
+  render();
+}
+
+async function adminAddGame(seriesId, sid, gameNumber) {
+  const timeInput = document.getElementById(`game-time-${sid}`);
+  const startTime = timeInput?.value ? new Date(timeInput.value).toISOString() : null;
+  await addGame(seriesId, gameNumber, startTime);
+  render();
+}
+
+function renderAdminSettings() {
+  const pts = (k) => state.settings[k] ?? '?';
+  return `
+    <div class="section-label">Points attribués</div>
+    <div class="card">
+      <div class="setting-row">
+        <div class="setting-label">
+          Vainqueur d'un match
+          <div class="setting-sub">Bon pronostic sur le résultat d'un match individuel</div>
+        </div>
+        <input class="setting-input" id="s-pts-game" type="number" min="0" value="${pts('points_match_winner')}">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">
+          Vainqueur de la série
+          <div class="setting-sub">Bonne équipe gagnante, peu importe le score</div>
+        </div>
+        <input class="setting-input" id="s-pts-series" type="number" min="0" value="${pts('points_series_winner')}">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">
+          Score exact de la série
+          <div class="setting-sub">Bon vainqueur ET bon nombre de matchs</div>
+        </div>
+        <input class="setting-input" id="s-pts-exact" type="number" min="0" value="${pts('points_series_exact')}">
+      </div>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="adminSaveSettings()">💾 Sauvegarder</button>
+    </div>
+
+    <div class="section-label">Sécurité</div>
+    <div class="card">
+      <div class="setting-row">
+        <div class="setting-label">
+          Code administrateur
+          <div class="setting-sub">Requis pour gérer les séries et les résultats</div>
+        </div>
+        <input class="setting-input" id="s-admin-code" type="text" value="${pts('admin_password')}">
+      </div>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="adminSaveSettings()">💾 Sauvegarder</button>
+    </div>`;
+}
+
+async function adminSaveSettings() {
+  const updates = {};
+  const pg = document.getElementById('s-pts-game');
+  const ps = document.getElementById('s-pts-series');
+  const pe = document.getElementById('s-pts-exact');
+  const ac = document.getElementById('s-admin-code');
+  if (pg) updates['points_match_winner'] = parseInt(pg.value);
+  if (ps) updates['points_series_winner'] = parseInt(ps.value);
+  if (pe) updates['points_series_exact'] = parseInt(pe.value);
+  if (ac) updates['admin_password'] = ac.value;
+  await saveSettings(updates);
+}
+
+// ─────────────────────────────────────────────────────────────
+// BOOT
+// ─────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
