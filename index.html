@@ -451,6 +451,83 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
 .mvp-other-box.active{border-color:var(--gold)}
 
 
+/* ── PREDS TABLE OVERLAY ── */
+.preds-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.78);
+  z-index:200;display:flex;align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(8px);animation:fadeIn .2s ease;
+}
+.preds-sheet{
+  width:100%;max-width:480px;
+  background:var(--card2);border-radius:24px 24px 0 0;
+  border-top:1px solid var(--border2);
+  padding:20px 0 36px;max-height:88vh;
+  display:flex;flex-direction:column;
+}
+.preds-sheet-handle{
+  width:40px;height:4px;border-radius:2px;
+  background:var(--border2);margin:0 auto 16px;flex-shrink:0;
+}
+.preds-sheet-header{padding:0 20px 14px;flex-shrink:0}
+.preds-sheet-title{
+  font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;
+  text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;
+}
+.preds-sheet-sub{font-size:12px;color:var(--muted)}
+.preds-table-wrap{overflow:auto;flex:1;padding:0 16px 4px;}
+.preds-table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}
+.preds-table th{
+  position:sticky;top:0;
+  background:var(--card2);
+  font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:10px;
+  letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);
+  padding:6px 8px;text-align:center;white-space:nowrap;
+  border-bottom:1px solid var(--border2);z-index:2;
+}
+.preds-table th:first-child{
+  position:sticky;left:0;z-index:3;
+  background:var(--card2);text-align:left;
+  min-width:90px;padding-left:4px;
+}
+.preds-table td{
+  padding:7px 6px;text-align:center;
+  border-bottom:1px solid var(--border);
+  vertical-align:middle;white-space:nowrap;
+}
+.preds-table td:first-child{
+  position:sticky;left:0;z-index:1;
+  background:var(--card2);text-align:left;
+  padding-left:4px;
+}
+.preds-table tr:last-child td{border-bottom:none}
+.pt-player{display:flex;align-items:center;gap:7px}
+.pt-av{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.pt-name{font-weight:600;font-size:12px;max-width:72px;overflow:hidden;text-overflow:ellipsis}
+.pt-cell{
+  display:inline-flex;align-items:center;justify-content:center;
+  border-radius:8px;padding:3px 6px;font-size:10px;font-weight:700;
+  font-family:'Barlow Condensed',sans-serif;letter-spacing:0.02em;
+  min-width:38px;
+}
+.pt-cell.hit{background:rgba(29,185,84,0.15);color:var(--green);border:1px solid rgba(29,185,84,0.3)}
+.pt-cell.miss{background:rgba(232,66,42,0.12);color:#ff8068;border:1px solid rgba(232,66,42,0.25)}
+.pt-cell.pending{background:rgba(255,255,255,0.05);color:var(--muted);border:1px solid var(--border)}
+.pt-cell.empty{background:transparent;color:var(--dim);border:1px dashed rgba(255,255,255,0.08)}
+.pt-series{
+  font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;
+  padding:3px 8px;border-radius:8px;
+  background:rgba(61,127,255,0.1);color:#9ec4ff;border:1px solid rgba(61,127,255,0.2);
+}
+.pt-series.series-hit{background:rgba(29,185,84,0.12);color:var(--green);border-color:rgba(29,185,84,0.25)}
+.pt-series.series-exact{background:rgba(245,197,24,0.15);color:var(--gold);border-color:rgba(245,197,24,0.3)}
+/* result row at top of table */
+.preds-table tr.result-row td{
+  background:rgba(255,255,255,0.03);font-weight:700;
+  position:sticky;top:33px;z-index:1;
+  border-bottom:2px solid var(--border2);
+}
+.preds-table tr.result-row td:first-child{z-index:2}
+
 /* ── PLAYER PROFILE SHEET ── */
 .profile-overlay{
   position:fixed;inset:0;background:rgba(0,0,0,0.78);
@@ -926,6 +1003,9 @@ function fmtDate(iso) {
 function isLocked(s) {
   if(s.status==='locked'||s.status==='finished') return true;
   if(s.start_time) return new Date()>=new Date(s.start_time);
+  // Auto-lock if at least one game has been played
+  const seriesGames = state.games[s.id] || [];
+  if(seriesGames.some(g => g.status === 'finished')) return true;
   return false;
 }
 function isGameLocked(g) {
@@ -954,6 +1034,9 @@ function getPlayer(id) { return state.players.find(p=>p.id===id); }
 function isLockedSeriesForMyPick(s) {
   if (s.status === 'locked' || s.status === 'finished') return true;
   if (s.start_time) return new Date() >= new Date(s.start_time);
+  // Auto-lock if at least one game has been played
+  const seriesGames = state.games[s.id] || [];
+  if (seriesGames.some(g => g.status === 'finished')) return true;
   return false;
 }
 
@@ -1103,6 +1186,13 @@ async function savePrediction(seriesId, seriesWinner, seriesGames, gamePredsList
   return true;
 }
 
+// ── Map rounds to next round ──────────────────────────────────────
+const ROUND_NEXT = {
+  'Premier tour': 'Demi-finales',
+  'Demi-finales': 'Finales de conférence',
+  'Finales de conférence': 'Finales NBA',
+};
+
 async function setSeriesResult(id, winner, games) {
   try {
     const { error: e1 } = await sb
@@ -1121,6 +1211,10 @@ async function setSeriesResult(id, winner, games) {
     }
 
     try { await sb.rpc('recalculate_points', { p_series_id: id }); } catch(e) { console.warn('RPC serie:', e); }
+
+    await loadSeries();
+    const finishedSeries = state.series.find(s => s.id === id);
+    if (finishedSeries) await autoAdvanceToNextRound(finishedSeries, winner);
 
     await loadSeries();
     await loadPredictions();
@@ -1154,11 +1248,123 @@ async function setGameResult(gameId, seriesId, winner) {
     await loadSeries();
     await loadPredictions();
     computeLeaderboard();
+
+    // ── Auto-finish series if a team reaches 4 wins ──────────────
+    const series = state.series.find(s => s.id === seriesId);
+    if (series && series.status !== 'finished') {
+      const allGames = state.games[seriesId] || [];
+      const finishedGames = allGames.filter(g => g.status === 'finished');
+      let wins1 = 0, wins2 = 0;
+      finishedGames.forEach(g => {
+        if (g.winner === series.team1) wins1++;
+        else if (g.winner === series.team2) wins2++;
+      });
+
+      const winnerTeam = wins1 >= 4 ? series.team1 : wins2 >= 4 ? series.team2 : null;
+      const totalGames = winnerTeam ? wins1 + wins2 : null;
+
+      if (winnerTeam) {
+        await sb.from('series').update({
+          series_winner: winnerTeam,
+          series_games: totalGames,
+          status: 'finished'
+        }).eq('id', seriesId);
+
+        try { await sb.rpc('recalculate_points', { p_series_id: seriesId }); } catch(e) { console.warn('RPC auto-finish:', e); }
+
+        // Reload series FIRST so autoAdvanceToNextRound reads fresh state
+        await loadSeries();
+        const freshSeries = state.series.find(s => s.id === seriesId);
+        if (freshSeries) await autoAdvanceToNextRound(freshSeries, winnerTeam);
+
+        await loadSeries();
+        await loadPredictions();
+        computeLeaderboard();
+        render();
+        toast('🏆 ' + winnerTeam + ' remporte la série ! Passage au tour suivant.');
+        return;
+      }
+    }
+
     render();
     toast('✅ Résultat du match enregistré');
   } catch (err) {
     console.error('setGameResult crash:', err);
     toast('❌ Erreur JS lors de la validation');
+  }
+}
+
+async function create7Games(seriesId) {
+  skipNextGamesRealtime += 7;
+  const gamesPayload = Array.from({length: 7}, (_, i) => ({
+    series_id: seriesId,
+    game_number: i + 1,
+    start_time: null,
+    status: 'upcoming'
+  }));
+  const { error } = await sb.from('games').insert(gamesPayload);
+  if (error) {
+    skipNextGamesRealtime = Math.max(0, skipNextGamesRealtime - 7);
+    console.warn('Erreur création matchs auto:', error);
+  }
+}
+
+async function autoAdvanceToNextRound(series, winnerTeam) {
+  const nextRound = ROUND_NEXT[series.round];
+  if (!nextRound) return;
+
+  const isNBAFinals = nextRound === 'Finales NBA';
+  const conf = isNBAFinals ? '—' : series.conference;
+
+  const alreadyExists = state.series.find(s =>
+    s.round === nextRound &&
+    (s.team1 === winnerTeam || s.team2 === winnerTeam)
+  );
+  if (alreadyExists) return;
+
+  if (isNBAFinals) {
+    const existingFinals = state.series.find(s => s.round === 'Finales NBA');
+    if (existingFinals && existingFinals.team2 === 'À déterminer') {
+      // Already has 7 games — just update the team name
+      skipNextSeriesRealtime += 1;
+      await sb.from('series').update({ team2: winnerTeam }).eq('id', existingFinals.id);
+    } else if (!existingFinals) {
+      skipNextSeriesRealtime += 1;
+      const { data: newS } = await sb.from('series').insert({
+        team1: winnerTeam,
+        team2: 'À déterminer',
+        round: 'Finales NBA',
+        conference: '—',
+        status: 'upcoming'
+      }).select().single();
+      if (newS) await create7Games(newS.id);
+    }
+  } else {
+    const partialSeries = state.series.find(s =>
+      s.round === nextRound &&
+      s.conference === conf &&
+      (s.team1 === 'À déterminer' || s.team2 === 'À déterminer')
+    );
+
+    if (partialSeries) {
+      // Already has 7 games — just update the team name
+      skipNextSeriesRealtime += 1;
+      if (partialSeries.team1 === 'À déterminer') {
+        await sb.from('series').update({ team1: winnerTeam }).eq('id', partialSeries.id);
+      } else {
+        await sb.from('series').update({ team2: winnerTeam }).eq('id', partialSeries.id);
+      }
+    } else {
+      skipNextSeriesRealtime += 1;
+      const { data: newS } = await sb.from('series').insert({
+        team1: winnerTeam,
+        team2: 'À déterminer',
+        round: nextRound,
+        conference: conf,
+        status: 'upcoming'
+      }).select().single();
+      if (newS) await create7Games(newS.id);
+    }
   }
 }
 
@@ -1207,23 +1413,26 @@ async function deleteSeries(id) {
 async function addSeries(t1, t2, round, conf, startTime) {
   skipNextSeriesRealtime += 1;
 
-  const { error } = await sb.from('series').insert({
+  const { data: newSeries, error } = await sb.from('series').insert({
     team1: t1,
     team2: t2,
     round,
     conference: conf,
     start_time: startTime || null,
     status: 'upcoming'
-  });
+  }).select().single();
 
   if (error) {
     skipNextSeriesRealtime = Math.max(0, skipNextSeriesRealtime - 1);
     return toast(`❌ Erreur ajout série : ${error.message}`);
   }
 
+  // Auto-create 7 games
+  if (newSeries) await create7Games(newSeries.id);
+
   await loadSeries();
   render();
-  toast('✅ Série ajoutée');
+  toast('✅ Série ajoutée avec 7 matchs');
 }
 async function addGame(seriesId, gameNumber, startTime) {
   skipNextGamesRealtime += 1;
@@ -1603,7 +1812,10 @@ function renderPredCard(s) {
   } else if(locked) {
     body=`
       <div class="divider"></div>
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Pronostics révélés</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Pronostics révélés</div>
+        ${ap.length?`<button class="btn btn-sm" onclick="openPredsTable('${s.id}')" style="font-size:11px;padding:5px 12px">📊 Tableau détaillé</button>`:''}
+      </div>
       ${!ap.length?`<div style="font-size:13px;color:var(--muted)">Aucun pronostic.</div>`:
         ap.map(pr=>{
           const pl=getPlayer(pr.player_id); if(!pl) return '';
@@ -2038,6 +2250,112 @@ async function submitPred(seriesId, pid, team1, team2) {
   render();
 }
 
+function toggleGameDetail(id) {
+  const el = document.getElementById(id);
+  const ch = document.getElementById(id + '_ch');
+  if (!el) return;
+  const open = el.style.display === 'none' || el.style.display === '';
+  el.style.display = open ? 'block' : 'none';
+  if (ch) ch.textContent = open ? '▲' : '▼';
+}
+
+function openPredsTable(seriesId) {
+  const s = state.series.find(x => x.id === seriesId);
+  if (!s) return;
+  const sGames = state.games[seriesId] || [];
+  const ap = state.predictions.filter(p => p.series_id === seriesId);
+  const cp = state.currentPlayer;
+
+  // Build header columns: Serie col + game cols
+  // Only show games up to the last played one (or all 7 if none played)
+  const maxGame = sGames.length ? Math.max(...sGames.map(g => g.game_number)) : 7;
+  const gameCols = sGames.slice(0, maxGame);
+
+  // Header row
+  const thGames = gameCols.map(g => {
+    const isFinished = g.status === 'finished';
+    return `<th>${isFinished ? '🏆' : ''}<br>M${g.game_number}</th>`;
+  }).join('');
+
+  // Result row (actual results)
+  const tdResults = gameCols.map(g => {
+    if (g.status !== 'finished') return `<td><span class="pt-cell empty">—</span></td>`;
+    return `<td><span class="pt-cell hit" style="background:rgba(29,185,84,0.2);color:var(--green);border-color:rgba(29,185,84,0.4)">${shortTeamName(g.winner)}</span></td>`;
+  }).join('');
+
+  // Player rows
+  const playerRows = ap.map(pr => {
+    const pl = getPlayer(pr.player_id);
+    if (!pl) return '';
+    const isMe = pl.id === cp?.id;
+    const gamePreds = Array.isArray(pr.game_predictions) ? pr.game_predictions : [];
+    const isSeriesFinished = s.status === 'finished';
+    const seriesHit = isSeriesFinished && pr.predicted_series_winner === s.series_winner;
+    const seriesExact = seriesHit && Number(pr.predicted_series_games) === Number(s.series_games);
+    const seriesCls = seriesExact ? 'series-exact' : seriesHit ? 'series-hit' : '';
+
+    const tdGames = gameCols.map(g => {
+      const gp = gamePreds.find(p => Number(p.game_number) === Number(g.game_number));
+      const pred = gp?.predicted_winner;
+      if (!pred) return `<td><span class="pt-cell empty">—</span></td>`;
+      if (g.status !== 'finished') return `<td><span class="pt-cell pending">${shortTeamName(pred)}</span></td>`;
+      const hit = pred === g.winner;
+      return `<td><span class="pt-cell ${hit ? 'hit' : 'miss'}">${shortTeamName(pred)}</span></td>`;
+    }).join('');
+
+    return `<tr>
+      <td>
+        <div class="pt-player">
+          <div class="pt-av" style="background:${pl.avatar_color}22;color:${pl.avatar_color}">${initials(pl.name)}</div>
+          <div class="pt-name">${pl.name}${isMe ? ' <span style="font-size:9px;color:var(--accent)">toi</span>' : ''}</div>
+        </div>
+      </td>
+      <td><span class="pt-series ${seriesCls}">${shortTeamName(pr.predicted_series_winner)} en ${pr.predicted_series_games}</span></td>
+      ${tdGames}
+    </tr>`;
+  }).join('');
+
+  const html = `
+    <div class="preds-overlay" id="preds-overlay" onclick="closePredsTable(event)">
+      <div class="preds-sheet" onclick="event.stopPropagation()">
+        <div class="preds-sheet-handle"></div>
+        <div class="preds-sheet-header">
+          <div class="preds-sheet-title">${s.team1} <span style="color:var(--muted);font-weight:400">vs</span> ${s.team2}</div>
+          <div class="preds-sheet-sub">${s.conference && s.conference !== '—' ? s.conference + ' · ' : ''}${s.round} — Pronos par match</div>
+        </div>
+        <div class="preds-table-wrap">
+          <table class="preds-table">
+            <thead>
+              <tr>
+                <th>Joueur</th>
+                <th>Série</th>
+                ${thGames}
+              </tr>
+            </thead>
+            <tbody>
+              ${s.status === 'finished' || sGames.some(g => g.status === 'finished') ? `
+              <tr class="result-row">
+                <td style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:0.06em;text-transform:uppercase">Résultat</td>
+                <td>${s.status === 'finished' ? `<span class="pt-series series-hit">${shortTeamName(s.series_winner)} en ${s.series_games}</span>` : '<span style="color:var(--dim);font-size:11px">En cours</span>'}</td>
+                ${tdResults}
+              </tr>` : ''}
+              ${playerRows}
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:14px 16px 0;flex-shrink:0">
+          <button class="btn btn-ghost btn-block btn-sm" onclick="document.getElementById('preds-overlay').remove()">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function closePredsTable(e) {
+  if (e.target.id === 'preds-overlay') document.getElementById('preds-overlay').remove();
+}
+
 function cancelEditSeries(seriesId, pid) {
   delete predTemp[pid];
   delete predTemp[`gp_${seriesId}`];
@@ -2137,46 +2455,87 @@ function renderAdminSeries() {
 
 function renderAdminCard(s) {
   const locked=isLocked(s), games=state.games[s.id]||[], sid=s.id.replace(/-/g,'_');
+
+  // Compute current wins from finished games
+  const finishedGames = games.filter(g => g.status === 'finished');
+  let wins1 = 0, wins2 = 0;
+  finishedGames.forEach(g => {
+    if (g.winner === s.team1) wins1++;
+    else if (g.winner === s.team2) wins2++;
+  });
+  const autoWinner = wins1 >= 4 ? s.team1 : wins2 >= 4 ? s.team2 : null;
+  const autoGames  = autoWinner ? wins1 + wins2 : null;
+
+  // Only show games that are relevant: all finished + the next one (if series not done)
+  // Actually show all 7, but grey out unreachable ones
+  const seriesOver = s.status === 'finished' || !!autoWinner;
+
   return `<div class="card">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
       <span style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;flex:1">${s.team1} <span style="color:var(--muted);font-size:14px">vs</span> ${s.team2}</span>
       ${s.status==='finished'?`<span class="badge badge-green">Terminé</span>`:locked?`<span class="badge badge-amber">Verrouillé</span>`:`<span class="badge badge-blue">Ouvert</span>`}
     </div>
     ${s.status!=='finished'&&!locked?`<button class="btn btn-sm btn-block" style="margin-bottom:10px" onclick="lockSeries('${s.id}')">🔒 Verrouiller maintenant</button>`:''}
-    ${s.status!=='finished'?`
-      <div class="admin-result-box">
-        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Résultat de la série</div>
-        <div class="grid2" style="gap:6px;margin-bottom:8px">
-          <select id="res-w-${sid}" style="font-size:13px">
-            <option value="">Vainqueur...</option>
-            <option value="${s.team1}">${s.team1}</option>
-            <option value="${s.team2}">${s.team2}</option>
-          </select>
-          <select id="res-g-${sid}" style="font-size:13px">
-            <option value="">Matchs...</option>
-            ${[4,5,6,7].map(n=>`<option value="${n}">en ${n}</option>`).join('')}
-          </select>
-        </div>
-        <button class="btn btn-primary btn-sm btn-block" onclick="doSetSeriesResult('${s.id}','${sid}')">✅ Valider le résultat</button>
-      </div>`:
-      `<div style="font-size:13px;color:var(--muted);margin-bottom:8px">🏆 ${s.series_winner} en ${s.series_games} matchs</div>`}
-    <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Matchs individuels</div>
-    ${games.map(g=>`
-      <div class="game-row">
+
+    ${s.status==='finished'
+      ? `<div style="font-size:13px;color:var(--muted);margin-bottom:8px">🏆 ${s.series_winner} en ${s.series_games} matchs</div>`
+      : autoWinner
+        ? `<div class="admin-result-box" style="background:rgba(29,185,84,0.08);border:1px solid rgba(29,185,84,0.25)">
+            <div style="font-size:12px;color:var(--green);font-weight:700;margin-bottom:4px">🏆 Vainqueur détecté automatiquement</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;margin-bottom:10px">${autoWinner} en ${autoGames}</div>
+            <button class="btn btn-primary btn-sm btn-block" onclick="setSeriesResult('${s.id}','${autoWinner}',${autoGames})">✅ Confirmer et clôturer la série</button>
+          </div>`
+        : `<div class="admin-result-box">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Résultat de la série</div>
+            <div class="grid2" style="gap:6px;margin-bottom:8px">
+              <select id="res-w-${sid}" style="font-size:13px">
+                <option value="">Vainqueur...</option>
+                <option value="${s.team1}">${s.team1}</option>
+                <option value="${s.team2}">${s.team2}</option>
+              </select>
+              <select id="res-g-${sid}" style="font-size:13px">
+                <option value="">Matchs...</option>
+                ${[4,5,6,7].map(n=>`<option value="${n}">en ${n}</option>`).join('')}
+              </select>
+            </div>
+            <button class="btn btn-primary btn-sm btn-block" onclick="doSetSeriesResult('${s.id}','${sid}')">✅ Valider le résultat</button>
+          </div>`
+    }
+
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">
+      Matchs — ${wins1}-${wins2}
+    </div>
+    ${games.map(g => {
+      // Grey out games that can't happen (series already decided before this game)
+      const finishedBefore = games.filter(x => x.status === 'finished' && x.game_number < g.game_number);
+      let w1b = 0, w2b = 0;
+      finishedBefore.forEach(x => { if(x.winner===s.team1) w1b++; else if(x.winner===s.team2) w2b++; });
+      const unreachable = s.status !== 'finished' && g.status !== 'finished' && (w1b >= 4 || w2b >= 4);
+
+      if (unreachable) return `<div class="game-row" style="opacity:0.3">
+        <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
+        <span style="flex:1;font-size:12px;color:var(--dim)">Non joué</span>
+      </div>`;
+
+      return `<div class="game-row">
         <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
         <span style="flex:1;font-size:11px;color:var(--muted)">${fmtDate(g.start_time)}</span>
-        ${g.status==='finished'?`<span class="badge badge-green">🏆 ${g.winner}</span>`:`
-          <select id="gres-${g.id.replace(/-/g,'_')}" style="font-size:12px;padding:4px 8px;width:auto">
-            <option value="">Résultat...</option>
-            <option value="${s.team1}">${s.team1}</option>
-            <option value="${s.team2}">${s.team2}</option>
-          </select>
-          <button class="btn btn-sm" style="padding:5px 10px" onclick="doSetGameResult('${g.id}','${s.id}','${g.id.replace(/-/g,'_')}')">✓</button>`}
-      </div>`).join('')}
-    <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <input id="gtime-${sid}" type="datetime-local" style="font-size:12px;padding:6px 8px;flex:1">
-      <button class="btn btn-sm" onclick="doAddGame('${s.id}','${sid}',${games.length+1})">+ Match ${games.length+1}</button>
-      <button class="btn btn-sm btn-danger" onclick="deleteSeries('${s.id}')">🗑</button>
+        ${g.status==='finished'
+          ? `<span class="badge badge-green">🏆 ${g.winner}</span>`
+          : seriesOver
+            ? `<span style="font-size:11px;color:var(--dim)">—</span>`
+            : `<select id="gres-${g.id.replace(/-/g,'_')}" style="font-size:12px;padding:4px 8px;width:auto">
+                <option value="">Résultat...</option>
+                <option value="${s.team1}">${s.team1}</option>
+                <option value="${s.team2}">${s.team2}</option>
+              </select>
+              <button class="btn btn-sm" style="padding:5px 10px" onclick="doSetGameResult('${g.id}','${s.id}','${g.id.replace(/-/g,'_')}')">✓</button>`
+        }
+      </div>`;
+    }).join('')}
+
+    <div style="margin-top:10px;display:flex;justify-content:flex-end">
+      <button class="btn btn-sm btn-danger" onclick="deleteSeries('${s.id}')">🗑 Supprimer</button>
     </div>
   </div>`;
 }
@@ -2383,7 +2742,7 @@ function bkMatchCard(series) {
     footer = `<div class="bk-match-footer">À venir</div>`;
   }
 
-  const showScore = hasStarted && finishedGames.length > 0;
+  const showScore = finishedGames.length > 0;
   const s1 = showScore ? score1 : null;
   const s2 = showScore ? score2 : null;
 
