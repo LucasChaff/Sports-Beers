@@ -3240,11 +3240,11 @@ function openPlayerProfile(playerId) {
           <div class="profile-avatar" style="background:${player.avatar_color}22;color:${player.avatar_color}">${initials(player.name)}</div>
           <div>
             <div class="profile-name">${player.name}</div>
-            <div class="profile-sub">Rang #${rank} · ${totalPreds} série(s) pronostiquée(s)</div>
+            <div class="profile-sub">Rang #${rank} · ${totalPreds}/${state.series.length} série(s) pronostiquée(s)</div>
           </div>
           <div class="profile-close" onclick="closePlayerProfile()">✕</div>
         </div>
-
+        
         <div class="profile-stats-grid">
           <div class="profile-stat">
             <div class="profile-stat-num" style="color:var(--gold)">${totalPts}</div>
@@ -3263,6 +3263,7 @@ function openPlayerProfile(playerId) {
             <div class="profile-stat-lbl">Matchs</div>
           </div>
         </div>
+        
 
         <div class="profile-section-hd">Précision</div>
         <div style="padding:0 20px 4px;font-size:11px;color:var(--muted);margin-bottom:4px">Vainqueur de série</div>
