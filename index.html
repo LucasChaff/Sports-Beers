@@ -834,11 +834,14 @@ let state = {
   adminAuthed:false, adminPage:'series',
   series:[], games:{}, predictions:[],
   players:[], settings:{}, leaderboard: [],
-  mvpPredictions: []
+  mvpPredictions: [],
+  championPredictions: []
 };
 
 // Temp state for in-progress predictions (survives re-renders)
 const predTemp = {};
+// Accordion open state for series page (survives re-renders)
+const seriesPageOpen = {};
 const editMode = {};
 let skipNextSeriesRealtime = 0;
 let skipNextGamesRealtime = 0;
@@ -873,14 +876,28 @@ async function loadAll() {
     loadSeries(),
     loadPlayers(),
     loadPredictions(),
-    loadMvpPredictions()
+    loadMvpPredictions(),
+    loadChampionPredictions()
   ]);
   computeLeaderboard();
 }
 
 async function loadSettings() {
-  const {data} = await sb.from('settings').select('*');
-  if (data) data.forEach(r => { try { state.settings[r.key]=JSON.parse(r.value); } catch { state.settings[r.key]=r.value; }});
+  state.settings = {};
+  const { data, error } = await sb.from('settings').select('*');
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  (data || []).forEach(r => {
+    try {
+      state.settings[r.key] = JSON.parse(r.value);
+    } catch {
+      state.settings[r.key] = r.value;
+    }
+  });
 }
 async function loadSeries() {
   const {data} = await sb.from('series').select('*').order('created_at',{ascending:true});
@@ -907,17 +924,26 @@ async function loadMvpPredictions() {
   state.mvpPredictions = data || [];
 }
 
+async function loadChampionPredictions() {
+  const { data } = await sb
+    .from('champion_predictions')
+    .select('*')
+    .order('updated_at', { ascending: false });
+  state.championPredictions = data || [];
+}
+
 // ── BUG FIX: compute leaderboard client-side so it's always fresh ──
 function computeLeaderboard() {
-  const ptsSW = Number(state.settings['points_series_winner'] ?? 3);
-  const ptsSE = Number(state.settings['points_series_exact'] ?? 5);
-  const ptsMW = Number(state.settings['points_match_winner'] ?? 2);
-
   const ptsMvpR1 = Number(state.settings['points_mvp_premier_tour'] ?? 1);
   const ptsMvpSF = Number(state.settings['points_mvp_demi_finales'] ?? 2);
   const ptsMvpCF = Number(state.settings['points_mvp_finales_conference'] ?? 4);
   const ptsMvpFN = Number(state.settings['points_mvp_finales_nba'] ?? 8);
   const actualMvp = String(state.settings['actual_mvp'] ?? '').trim().toLowerCase();
+  const ptsChampR1 = Number(state.settings['points_champion_premier_tour'] ?? 1);
+  const ptsChampSF = Number(state.settings['points_champion_demi_finales'] ?? 2);
+  const ptsChampCF = Number(state.settings['points_champion_finales_conference'] ?? 4);
+  const ptsChampFN = Number(state.settings['points_champion_finales_nba'] ?? 8);
+  const actualChampion = String(state.settings['actual_champion'] ?? '').trim().toLowerCase();
 
   const map = {};
 
@@ -931,6 +957,7 @@ function computeLeaderboard() {
       points_series_exact: 0,
       points_games: 0,
       points_mvp: 0,
+      points_champion: 0,
       predictions_count: 0,
       correct_predictions: 0
     };
@@ -944,6 +971,11 @@ function computeLeaderboard() {
 
     const s = state.series.find(x => x.id === pred.series_id);
     if (!s) return;
+
+    const roundPoints = getRoundPoints(s.round);
+    const ptsMW = roundPoints.match;
+    const ptsSW = roundPoints.series;
+    const ptsSE = roundPoints.exact;
 
     let sw = 0;
     let se = 0;
@@ -964,6 +996,7 @@ function computeLeaderboard() {
     if (s.status === 'finished' && s.series_winner) {
       if (pred.predicted_series_winner === s.series_winner) {
         sw = ptsSW;
+
         if (Number(pred.predicted_series_games) === Number(s.series_games)) {
           se = ptsSE;
         }
@@ -1004,6 +1037,22 @@ function computeLeaderboard() {
     }
   });
 
+  state.championPredictions.forEach(pred => {
+    const entry = map[pred.player_id];
+    if (!entry) return;
+    if (!actualChampion) return;
+    const predicted = String(pred.predicted_champion ?? '').trim().toLowerCase();
+    if (!predicted || predicted !== actualChampion) return;
+    let pts = 0;
+    if (pred.playoff_round === 'Premier tour') pts = ptsChampR1;
+    else if (pred.playoff_round === 'Demi-finales') pts = ptsChampSF;
+    else if (pred.playoff_round === 'Finales de conférence') pts = ptsChampCF;
+    else if (pred.playoff_round === 'Finales NBA') pts = ptsChampFN;
+    entry.points_champion += pts;
+    entry.total_points += pts;
+    if (pts > 0) entry.correct_predictions++;
+  });
+
   state.leaderboard = Object.values(map).sort((a, b) => b.total_points - a.total_points);
 }
 
@@ -1013,58 +1062,67 @@ function computeLeaderboard() {
 function subscribeRealtime() {
   sb.channel('db-all')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'series' }, async () => {
-      if (skipNextSeriesRealtime > 0) {
-        skipNextSeriesRealtime--;
-        return;
-      }
+      if (state.loading) return;
+      if (skipNextSeriesRealtime > 0) { skipNextSeriesRealtime--; return; }
       await loadSeries();
       await loadPredictions();
       computeLeaderboard();
       render();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, async () => {
-      if (skipNextGamesRealtime > 0) {
-        skipNextGamesRealtime--;
-        return;
-      }
+      if (state.loading) return;
+      if (skipNextGamesRealtime > 0) { skipNextGamesRealtime--; return; }
       await loadSeries();
       await loadPredictions();
       computeLeaderboard();
       render();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'predictions' }, async () => {
-      if (skipNextPredictionRealtime > 0) {
-        skipNextPredictionRealtime--;
-        return;
-      }
+      if (state.loading) return;
+      if (skipNextPredictionRealtime > 0) { skipNextPredictionRealtime--; return; }
       await loadPredictions();
       computeLeaderboard();
       render();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, async () => {
-      if (skipNextPlayersRealtime > 0) {
-        skipNextPlayersRealtime--;
-        return;
-      }
+      if (state.loading) return;
+      if (skipNextPlayersRealtime > 0) { skipNextPlayersRealtime--; return; }
       await loadPlayers();
       await loadPredictions();
       computeLeaderboard();
+      // Re-valider que le joueur connecté existe toujours
+      if (state.currentPlayer) {
+        const still = state.players.find(p => p.id === state.currentPlayer.id);
+        if (!still) {
+          state.currentPlayer = null;
+          localStorage.removeItem('nba26_player');
+          state.showOnboarding = true;
+          state.onboardLogin = state.players.length > 0;
+        } else {
+          state.currentPlayer = still;
+        }
+      }
       render();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, async () => {
-      if (skipNextSettingsRealtime > 0) {
-        skipNextSettingsRealtime--;
-        return;
-      }
+      if (state.loading) return;
+      if (skipNextSettingsRealtime > 0) { skipNextSettingsRealtime--; return; }
       await loadSettings();
       computeLeaderboard();
       render();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'mvp_predictions' }, async () => {
-    await loadMvpPredictions();
-    computeLeaderboard();
-    render();
-})
+      if (state.loading) return;
+      await loadMvpPredictions();
+      computeLeaderboard();
+      render();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'champion_predictions' }, async () => {
+      if (state.loading) return;
+      await loadChampionPredictions();
+      computeLeaderboard();
+      render();
+    })
     .subscribe();
 }
 
@@ -1127,6 +1185,145 @@ function isLockedSeriesForMyPick(s) {
   const seriesGames = state.games[s.id] || [];
   if (seriesGames.some(g => g.status === 'finished')) return true;
   return false;
+}
+
+// ══════════════════════════════════════════════════
+// CHAMPION PREDICTION LOGIC
+// ══════════════════════════════════════════════════
+function getChampionPredForRound(playerId, round) {
+  return state.championPredictions.find(
+    p => p.player_id === playerId && p.playoff_round === round
+  );
+}
+
+function myChampionPred(round) {
+  if (!state.currentPlayer) return null;
+  return getChampionPredForRound(state.currentPlayer.id, round);
+}
+
+function isChampionLocked(round) {
+  const seriesOfRound = state.series.filter(s => s.round === round);
+  if (!seriesOfRound.length) return false;
+
+  // Si au moins une série du round est verrouillée/terminée manuellement
+  if (seriesOfRound.some(s => s.status === 'locked' || s.status === 'finished')) return true;
+
+  // Si au moins un match du round a été validé
+  const hasValidatedGame = seriesOfRound.some(s => {
+    const seriesGames = state.games[s.id] || [];
+    return seriesGames.some(g => g.status === 'finished');
+  });
+  if (hasValidatedGame) return true;
+
+  // Verrouillage automatique à la date de début
+  const earliestStart = seriesOfRound.map(s => s.start_time).filter(Boolean).sort()[0];
+  if (!earliestStart) return false;
+  return new Date() >= new Date(earliestStart);
+}
+
+// Get all teams still alive at a given round (appeared in that round or later)
+function getTeamsForRound(round) {
+  const roundOrder = ['Premier tour', 'Demi-finales', 'Finales de conférence', 'Finales NBA'];
+  const idx = roundOrder.indexOf(round);
+  // All teams in series from this round onwards
+  const teams = new Set();
+  state.series
+    .filter(s => roundOrder.indexOf(s.round) >= idx)
+    .forEach(s => {
+      if (s.team1 && s.team1 !== 'À déterminer') teams.add(s.team1);
+      if (s.team2 && s.team2 !== 'À déterminer') teams.add(s.team2);
+    });
+  return [...teams].sort();
+}
+
+async function saveChampionPrediction(round, predictedChampion) {
+  if (!state.currentPlayer) return false;
+  if (isChampionLocked(round)) {
+    toast('🔒 Trop tard ! Le round a commencé.');
+    return false;
+  }
+  const existing = myChampionPred(round);
+  const payload = {
+    player_id: state.currentPlayer.id,
+    playoff_round: round,
+    predicted_champion: predictedChampion,
+    updated_at: new Date().toISOString()
+  };
+  let error;
+  if (existing) {
+    ({ error } = await sb.from('champion_predictions').update(payload).eq('id', existing.id));
+  } else {
+    ({ error } = await sb.from('champion_predictions').insert(payload));
+  }
+  if (error) {
+    console.error(error);
+    toast('❌ Erreur sauvegarde Champion');
+    return false;
+  }
+  await loadChampionPredictions();
+  computeLeaderboard();
+  toast('🏆 Pronostic Champion enregistré');
+  render();
+  return true;
+}
+
+let championPickerRound = null;
+
+function openChampionPicker(round) {
+  championPickerRound = round;
+  const existing = document.getElementById('champion-overlay');
+  if (existing) existing.remove();
+
+  const pred = myChampionPred(round);
+  const existingTeam = pred?.predicted_champion || '';
+  const teams = getTeamsForRound(round);
+
+  const teamsHTML = teams.map(team => {
+    const logo = teamLogo(team);
+    const selected = existingTeam === team;
+    return `<div class="mvp-card ${selected ? 'selected' : ''}" id="champ-card-${team.replace(/\s+/g,'_')}"
+        onclick="pickChampionDirect(event,'${round}','${team.replace(/'/g,"\'")}')">
+      <div class="mvp-card-photo" style="border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.06)">
+        ${logo
+          ? `<img src="${logo}" alt="${team}" style="width:100%;height:100%;object-fit:contain;padding:4px" onerror="this.parentElement.innerHTML='<div style=\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px;\'>🏀</div>'">`
+          : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px">🏀</div>`}
+      </div>
+      <div class="mvp-card-name" style="font-size:11px">${team}</div>
+    </div>`;
+  }).join('');
+
+  const html = `
+    <div class="mvp-overlay" id="champion-overlay" onclick="handleChampionOverlayClick(event)">
+      <div class="mvp-sheet" onclick="event.stopPropagation()">
+        <div class="mvp-sheet-handle"></div>
+        <div class="mvp-sheet-title">🏆 Pronostic Champion</div>
+        <div class="mvp-sheet-sub">${round} — Quelle équipe va gagner le titre ?</div>
+        ${teams.length
+          ? `<div class="mvp-grid" id="champion-grid">${teamsHTML}</div>`
+          : `<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Aucune équipe disponible pour ce round.</div>`}
+        <button class="btn btn-ghost btn-sm btn-block" onclick="closeChampionPicker()" style="margin-top:6px">Annuler</button>
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function closeChampionPicker() {
+  const el = document.getElementById('champion-overlay');
+  if (el) el.remove();
+}
+
+async function pickChampionDirect(e, round, team) {
+  e.stopPropagation();
+  document.querySelectorAll('#champion-grid .mvp-card').forEach(el => el.classList.remove('selected'));
+  const safeId = 'champ-card-' + team.replace(/\s+/g,'_');
+  document.getElementById(safeId)?.classList.add('selected');
+  closeChampionPicker();
+  await saveChampionPrediction(round, team);
+}
+
+function handleChampionOverlayClick(e) {
+  if (e.target.id === 'champion-overlay') closeChampionPicker();
 }
 
 function getMvpPredForRound(playerId, playoffRound) {
@@ -1199,15 +1396,17 @@ function isMvpLocked(round) {
   // Si aucune série dans ce round, pas verrouillé
   if (!seriesOfRound.length) return false;
 
-  // Sécurité 1 : si au moins un score de match du round a été validé, on verrouille
+  // Sécurité 1 : si au moins une série du round est verrouillée/terminée manuellement
+  if (seriesOfRound.some(s => s.status === 'locked' || s.status === 'finished')) return true;
+
+  // Sécurité 2 : si au moins un match du round a été validé
   const hasValidatedGame = seriesOfRound.some(s => {
     const seriesGames = state.games[s.id] || [];
     return seriesGames.some(g => g.status === 'finished');
   });
-
   if (hasValidatedGame) return true;
 
-  // Sécurité 2 : verrouillage normal au début théorique du round
+  // Sécurité 3 : verrouillage automatique à la date de début
   const earliestStart = seriesOfRound
     .map(s => s.start_time)
     .filter(Boolean)
@@ -1216,6 +1415,33 @@ function isMvpLocked(round) {
   if (!earliestStart) return false;
 
   return new Date() >= new Date(earliestStart);
+}
+
+function getRoundPoints(round) {
+  const map = {
+    'Premier tour': {
+      match: Number(state.settings['points_match_winner_premier_tour'] ?? 2),
+      series: Number(state.settings['points_series_winner_premier_tour'] ?? 3),
+      exact: Number(state.settings['points_series_exact_premier_tour'] ?? 5),
+    },
+    'Demi-finales': {
+      match: Number(state.settings['points_match_winner_demi_finales'] ?? 2),
+      series: Number(state.settings['points_series_winner_demi_finales'] ?? 3),
+      exact: Number(state.settings['points_series_exact_demi_finales'] ?? 5),
+    },
+    'Finales de conférence': {
+      match: Number(state.settings['points_match_winner_finales_conference'] ?? 2),
+      series: Number(state.settings['points_series_winner_finales_conference'] ?? 3),
+      exact: Number(state.settings['points_series_exact_finales_conference'] ?? 5),
+    },
+    'Finales NBA': {
+      match: Number(state.settings['points_match_winner_finales_nba'] ?? 2),
+      series: Number(state.settings['points_series_winner_finales_nba'] ?? 3),
+      exact: Number(state.settings['points_series_exact_finales_nba'] ?? 5),
+    }
+  };
+
+  return map[round] || { match: 2, series: 3, exact: 5 };
 }
 
 // ══════════════════════════════════════════════════
@@ -1585,6 +1811,7 @@ async function saveSettings(updates) {
     }
   }
 
+  state.settings = {};
   await loadSettings();
   computeLeaderboard();
   toast('✅ Sauvegardé');
@@ -1650,7 +1877,10 @@ function render() {
   }
 
   if (state.showOnboarding) {
-    root.innerHTML = renderOnboarding();
+    root.innerHTML = `
+      ${renderOnboarding()}
+      <div id="toast"></div>
+    `;
     return;
   }
 
@@ -1812,6 +2042,271 @@ function setCurrentPlayer(p) {
 }
 
 // ── LEADERBOARD ──
+function buildLeaderboardTimeline() {
+  const ptsMvpR1 = Number(state.settings['points_mvp_premier_tour'] ?? 1);
+  const ptsMvpSF = Number(state.settings['points_mvp_demi_finales'] ?? 2);
+  const ptsMvpCF = Number(state.settings['points_mvp_finales_conference'] ?? 4);
+  const ptsMvpFN = Number(state.settings['points_mvp_finales_nba'] ?? 8);
+  const actualMvp = String(state.settings['actual_mvp'] ?? '').trim().toLowerCase();
+
+  const timeline = [];
+  const totals = {};
+  const awardedGamePoints = new Set();
+  const awardedSeriesWinnerPoints = new Set();
+  const awardedSeriesExactPoints = new Set();
+  const awardedMvpPoints = new Set();
+
+  state.players.forEach(p => {
+    totals[p.id] = 0;
+  });
+
+  const events = [];
+
+  Object.values(state.games).flat().forEach(g => {
+    if (g.status === 'finished' && g.winner) {
+      events.push({
+        type: 'game',
+        sortDate: g.updated_at || g.start_time || '',
+        game: g
+      });
+    }
+  });
+
+  state.series.forEach(s => {
+    if (s.status === 'finished' && s.series_winner) {
+      events.push({
+        type: 'series',
+        sortDate: s.updated_at || s.start_time || '',
+        series: s
+      });
+    }
+  });
+
+  if (actualMvp) {
+    state.mvpPredictions.forEach(mp => {
+      events.push({
+        type: 'mvp',
+        sortDate: mp.updated_at || '',
+        mvpPrediction: mp
+      });
+    });
+  }
+
+  events.sort((a, b) => String(a.sortDate).localeCompare(String(b.sortDate)));
+
+  function pushSnapshot(label) {
+    timeline.push({
+      label,
+      points: state.players.map(p => ({
+        player_id: p.id,
+        name: p.name,
+        color: p.avatar_color,
+        total: totals[p.id] || 0
+      }))
+    });
+  }
+
+  events.forEach(ev => {
+    if (ev.type === 'game') {
+      const g = ev.game;
+      const s = state.series.find(x => x.id === g.series_id);
+      if (!s) return;
+
+      const roundPoints = getRoundPoints(s.round);
+      const ptsMW = roundPoints.match;
+      const keyBase = `${g.series_id}::${g.game_number}`;
+
+      state.predictions.forEach(pred => {
+        const gp = Array.isArray(pred.game_predictions)
+          ? pred.game_predictions.find(x => Number(x.game_number) === Number(g.game_number))
+          : null;
+
+        if (!gp) return;
+        if (gp.predicted_winner !== g.winner) return;
+
+        const awardKey = `${pred.player_id}::${keyBase}`;
+        if (awardedGamePoints.has(awardKey)) return;
+
+        totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsMW;
+        awardedGamePoints.add(awardKey);
+      });
+
+      pushSnapshot(`${shortTeamName(s.team1)}-${shortTeamName(s.team2)} · M${g.game_number}`);
+    }
+
+    if (ev.type === 'series') {
+      const s = ev.series;
+      const roundPoints = getRoundPoints(s.round);
+      const ptsSW = roundPoints.series;
+      const ptsSE = roundPoints.exact;
+
+      state.predictions
+        .filter(pred => pred.series_id === s.id)
+        .forEach(pred => {
+          const winKey = `${pred.player_id}::${s.id}::winner`;
+          const exactKey = `${pred.player_id}::${s.id}::exact`;
+
+          if (
+            pred.predicted_series_winner === s.series_winner &&
+            !awardedSeriesWinnerPoints.has(winKey)
+          ) {
+            totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsSW;
+            awardedSeriesWinnerPoints.add(winKey);
+          }
+
+          if (
+            pred.predicted_series_winner === s.series_winner &&
+            Number(pred.predicted_series_games) === Number(s.series_games) &&
+            !awardedSeriesExactPoints.has(exactKey)
+          ) {
+            totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsSE;
+            awardedSeriesExactPoints.add(exactKey);
+          }
+        });
+
+      pushSnapshot(`${shortTeamName(s.team1)}-${shortTeamName(s.team2)} · Série`);
+    }
+
+    if (ev.type === 'mvp') {
+      const mp = ev.mvpPrediction;
+      const predictedMvp = String(mp.predicted_mvp ?? '').trim().toLowerCase();
+      if (!predictedMvp || predictedMvp !== actualMvp) return;
+
+      const mvpKey = `${mp.player_id}::${mp.playoff_round}::${predictedMvp}`;
+      if (awardedMvpPoints.has(mvpKey)) return;
+
+      let pts = 0;
+      if (mp.playoff_round === 'Premier tour') pts = ptsMvpR1;
+      else if (mp.playoff_round === 'Demi-finales') pts = ptsMvpSF;
+      else if (mp.playoff_round === 'Finales de conférence') pts = ptsMvpCF;
+      else if (mp.playoff_round === 'Finales NBA') pts = ptsMvpFN;
+
+      if (pts > 0) {
+        totals[mp.player_id] = (totals[mp.player_id] || 0) + pts;
+        awardedMvpPoints.add(mvpKey);
+        pushSnapshot(`MVP · ${mp.playoff_round}`);
+      }
+    }
+  });
+
+  return timeline;
+}
+
+function renderLeaderboardTrendChart() {
+  const timeline = buildLeaderboardTimeline();
+
+  if (!timeline.length) {
+    return `
+      <div class="card">
+        <div style="font-size:13px;color:var(--muted)">
+          Le graphique apparaîtra dès que des matchs ou séries auront été validés.
+        </div>
+      </div>
+    `;
+  }
+
+  const width = 320;
+  const height = 220;
+
+  const padL = 28;
+  const padR = 10;
+  const padT = 12;
+  const padB = 24;
+
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+
+  const allValues = timeline.flatMap(step => step.points.map(p => p.total));
+  const rawMaxY = Math.max(1, ...allValues);
+  const maxY = Math.ceil(rawMaxY * 1.1);
+
+  // Axe X auto-ajusté selon le nombre d'étapes
+  const xAt = i => {
+    if (timeline.length <= 1) return padL + innerW / 2;
+    return padL + (i / (timeline.length - 1)) * innerW;
+  };
+
+  // Axe Y auto-ajusté selon le score max
+  const yAt = v => padT + innerH - (v / maxY) * innerH;
+
+  const gridLines = 4;
+  const yGrid = Array.from({ length: gridLines + 1 }, (_, i) => {
+    const val = Math.round((maxY * i) / gridLines);
+    const y = yAt(val);
+    return `
+      <line x1="${padL}" y1="${y}" x2="${width - padR}" y2="${y}" stroke="rgba(255,255,255,0.08)" />
+      <text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="rgba(200,205,240,0.5)">${val}</text>
+    `;
+  }).join('');
+
+  const xLabels = timeline.map((step, i) => `
+    <text x="${xAt(i)}" y="${height - 8}" text-anchor="middle" font-size="9" fill="rgba(200,205,240,0.45)">
+      ${i % 2 === 0 ? i + 1 : ''}
+    </text>
+  `).join('');
+
+  const lines = state.players.map(player => {
+    const pts = timeline.map(step => {
+      const row = step.points.find(p => p.player_id === player.id);
+      return row ? row.total : 0;
+    });
+
+    const d = pts.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)} ${yAt(v)}`).join(' ');
+
+    const dots = pts.map((v, i) => `
+      <circle cx="${xAt(i)}" cy="${yAt(v)}" r="2.5" fill="${player.avatar_color}" />
+    `).join('');
+
+    return `
+      <path d="${d}" fill="none" stroke="${player.avatar_color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+      ${dots}
+    `;
+  }).join('');
+
+  const legend = state.players.map(player => `
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px">
+      <span style="width:8px;height:8px;border-radius:50%;background:${player.avatar_color};display:inline-block"></span>
+      <span>${player.name}</span>
+    </div>
+  `).join('');
+
+  const lastStep = timeline[timeline.length - 1];
+
+  return `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+        <div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;text-transform:uppercase">
+            Évolution
+          </div>
+          <div style="font-size:11px;color:var(--muted)">
+            Points cumulés par étape
+          </div>
+        </div>
+        <span class="badge badge-blue">${timeline.length}</span>
+      </div>
+
+      <div style="overflow-x:auto">
+        <svg viewBox="0 0 ${width} ${height}" style="width:100%;min-width:320px;height:auto;display:block">
+          ${yGrid}
+          <line x1="${padL}" y1="${height - padB}" x2="${width - padR}" y2="${height - padB}" stroke="rgba(255,255,255,0.12)" />
+          <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${height - padB}" stroke="rgba(255,255,255,0.12)" />
+          ${lines}
+          ${xLabels}
+        </svg>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">
+        ${legend}
+      </div>
+
+      <div style="margin-top:8px;font-size:10px;color:var(--muted)">
+        Dernière étape : ${lastStep.label}
+      </div>
+    </div>
+  `;
+}
+
 function renderLeaderboard() {
   const lb=state.leaderboard;
   if(!lb.length) return `<div class="empty"><span class="empty-icon">🏆</span>Personne n'a encore pronostiqué !</div>`;
@@ -1865,7 +2360,9 @@ function renderLeaderboard() {
           <td style="font-weight:700;color:var(--text)">${p.total_points}</td>
         </tr>`).join('')}</tbody>
       </table>
-    </div>`;
+    </div>
+        <div class="section-label">Tendance</div>
+        ${renderLeaderboardTrendChart()}`;
 }
 
 // ── PREDICTIONS ──
@@ -1879,171 +2376,234 @@ function renderPredictions() {
 }
 
 function renderPredCard(s) {
-  const locked=isLocked(s);
-  const mp=myPred(s.id);
-  const ap=allPreds(s.id);
-  const pid=s.id.replace(/-/g,'_');
-  const sGames=state.games[s.id]||[];
+  const locked = isLocked(s);
+  const mp = myPred(s.id);
+  const ap = allPreds(s.id);
+  const pid = s.id.replace(/-/g, '_');
+  const sGames = state.games[s.id] || [];
+  const roundPoints = getRoundPoints(s.round);
+  const ptsSW = roundPoints.series;
+  const ptsSE = roundPoints.exact;
 
   // Status badge
-  let badge='';
-  if(s.status==='finished') badge=`<span class="badge badge-green">✓ Terminé</span>`;
-  else if(locked) badge=`<span class="badge badge-amber">🔒 Verrouillé</span>`;
-  else if(s.start_time) badge=`<span class="badge badge-blue">⏰ ${fmtDate(s.start_time)}</span>`;
-  else badge=`<span class="badge badge-green">Ouvert</span>`;
+  let badge = '';
+  if (s.status === 'finished') badge = `<span class="badge badge-green">✓ Terminé</span>`;
+  else if (locked) badge = `<span class="badge badge-amber">🔒 Verrouillé</span>`;
+  else if (s.start_time) badge = `<span class="badge badge-blue">⏰ ${fmtDate(s.start_time)}</span>`;
+  else badge = `<span class="badge badge-green">Ouvert</span>`;
 
-  let body='';
+  let body = '';
 
-  if(s.status==='finished') {
-    // Résultat + mes points
-    body=`
+  if (s.status === 'finished') {
+    body = `
       <div class="result-box">
         <span class="result-box-trophy">🏆</span>
         <span class="result-box-text">${s.series_winner} — ${s.series_games} matchs</span>
       </div>
-      ${mp?`
+
+      ${mp ? `
         <div style="background:rgba(255,255,255,0.04);border-radius:12px;padding:12px 14px;margin-bottom:12px">
-          <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Mon pronostic</div>
-          <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;text-transform:uppercase">${mp.predicted_series_winner} en ${mp.predicted_series_games}</div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">
+            Mon pronostic
+          </div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;text-transform:uppercase">
+            ${mp.predicted_series_winner} en ${mp.predicted_series_games}
+          </div>
           <div class="pts-chips">
-            ${mp.predicted_series_winner===s.series_winner?`<span class="pts-chip hit">+${state.settings['points_series_winner']??3} vainqueur</span>`:'<span class="pts-chip">✗ vainqueur</span>'}
-            ${(mp.predicted_series_winner===s.series_winner&&Number(mp.predicted_series_games)===Number(s.series_games))?`<span class="pts-chip hit">+${state.settings['points_series_exact']??5} score exact</span>`:''}
+            ${mp.predicted_series_winner === s.series_winner
+              ? `<span class="pts-chip hit">+${ptsSW} vainqueur</span>`
+              : `<span class="pts-chip">✗ vainqueur</span>`}
+            ${(mp.predicted_series_winner === s.series_winner &&
+               Number(mp.predicted_series_games) === Number(s.series_games))
+              ? `<span class="pts-chip hit">+${ptsSE} score exact</span>`
+              : ``}
           </div>
         </div>
-        `:`<div style="font-size:13px;color:var(--muted);margin-bottom:12px">Tu n'avais pas pronostiqué cette série.</div>`}
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      ` : `
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px">
+          Tu n'avais pas pronostiqué cette série.
+        </div>
+      `}
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">
           Pronostics de tout le monde
         </div>
-        ${ap.length ? `<button class="btn btn-sm" onclick="openPredsTable('${s.id}')" style="font-size:11px;padding:5px 12px">📊 Tableau détaillé</button>` : ''}
+        ${ap.length
+          ? `<button class="btn btn-sm" onclick="openPredsTable('${s.id}')" style="font-size:11px;padding:5px 12px">📊 Tableau détaillé</button>`
+          : ``}
       </div>
-      ${ap.map(pr=>{
-        const pl=getPlayer(pr.player_id); if(!pl) return '';
-        const ok=pr.predicted_series_winner===s.series_winner;
-        const exact=ok&&Number(pr.predicted_series_games)===Number(s.series_games);
-        return `<div class="reveal-row">
-          <div class="reveal-av" style="background:${pl.avatar_color}22;color:${pl.avatar_color}">${initials(pl.name)}</div>
-          <span style="flex:1;font-weight:600">${pl.name}</span>
-          <span style="font-size:12px;color:var(--muted);margin-right:8px">${pr.predicted_series_winner} en ${pr.predicted_series_games}</span>
-          <span class="badge ${exact?'badge-green':ok?'badge-amber':'badge-gray'}">${exact?'🎯':ok?'✓':'✗'}</span>
-        </div>`;
-      }).join('')}`;
 
-  } else if(locked) {
-    body=`
+      ${ap.map(pr => {
+        const pl = getPlayer(pr.player_id);
+        if (!pl) return '';
+
+        const ok = pr.predicted_series_winner === s.series_winner;
+        const exact = ok && Number(pr.predicted_series_games) === Number(s.series_games);
+
+        return `
+          <div class="reveal-row">
+            <div class="reveal-av" style="background:${pl.avatar_color}22;color:${pl.avatar_color}">
+              ${initials(pl.name)}
+            </div>
+            <span style="flex:1;font-weight:600">${pl.name}</span>
+            <span style="font-size:12px;color:var(--muted);margin-right:8px">
+              ${pr.predicted_series_winner} en ${pr.predicted_series_games}
+            </span>
+            <span class="badge ${exact ? 'badge-green' : ok ? 'badge-amber' : 'badge-gray'}">
+              ${exact ? '🎯' : ok ? '✓' : '✗'}
+            </span>
+          </div>
+        `;
+      }).join('')}
+    `;
+  } else if (locked) {
+    body = `
       <div class="divider"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Pronostics révélés</div>
-        ${ap.length?`<button class="btn btn-sm" onclick="openPredsTable('${s.id}')" style="font-size:11px;padding:5px 12px">📊 Tableau détaillé</button>`:''}
-      </div>
-      ${!ap.length?`<div style="font-size:13px;color:var(--muted)">Aucun pronostic.</div>`:
-        ap.map(pr=>{
-          const pl=getPlayer(pr.player_id); if(!pl) return '';
-          const isMe=pl.id===state.currentPlayer?.id;
-          return `<div class="reveal-row">
-            <div class="reveal-av" style="background:${pl.avatar_color}22;color:${pl.avatar_color}">${initials(pl.name)}</div>
-            <span style="flex:1;font-weight:600">${pl.name}${isMe?' <span style="font-size:10px;color:var(--accent)">toi</span>':''}</span>
-            <span style="font-size:13px;font-family:\'Barlow Condensed\',sans-serif;font-weight:700">${pr.predicted_series_winner} en ${pr.predicted_series_games}</span>
-          </div>`;
-        }).join('')}`;
-
-} else {
-  const tmp = predTemp[pid] || {};
-  const currentWinner = tmp.winner !== undefined ? tmp.winner : (mp?.predicted_series_winner || '');
-  const currentGames  = tmp.games  !== undefined ? tmp.games  : (mp ? Number(mp.predicted_series_games) : null);
-
-  const editing = !mp || isEditingSeries(s.id);
-
-  if (!editing && mp) {
-    body = `
-      <div class="divider"></div>
-
-      <div class="my-pred-bar" style="margin-top:4px">
-        <span class="my-pred-icon">✅</span>
-        <div>
-          <div class="my-pred-text">${mp.predicted_series_winner} en ${mp.predicted_series_games}</div>
-          <div class="my-pred-sub">Pronostic enregistré</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">
+          Pronostics révélés
         </div>
+        ${ap.length
+          ? `<button class="btn btn-sm" onclick="openPredsTable('${s.id}')" style="font-size:11px;padding:5px 12px">📊 Tableau détaillé</button>`
+          : ``}
       </div>
 
-      ${sGames.length ? `
-        <div style="margin-top:14px">
-          <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Mes pronostics par match</div>
-          ${(mp.game_predictions || []).length
-            ? (sGames.map(g => {
-                const gp = (mp.game_predictions || []).find(p => Number(p.game_number) === Number(g.game_number));
-                return `
-                  <div class="game-row">
-                    <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
-                    <span style="flex:1;font-size:12px;color:var(--muted)">${fmtDate(g.start_time)}</span>
-                    <span class="badge badge-gray">${gp?.predicted_winner || '—'}</span>
-                  </div>
-                `;
-              }).join(''))
-            : `<div style="font-size:13px;color:var(--muted)">Aucun pronostic par match enregistré.</div>`
-          }
-        </div>
-      ` : ''}
+      ${!ap.length ? `
+        <div style="font-size:13px;color:var(--muted)">Aucun pronostic.</div>
+      ` : ap.map(pr => {
+        const pl = getPlayer(pr.player_id);
+        if (!pl) return '';
+        const isMe = pl.id === state.currentPlayer?.id;
 
-      <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="startEditingSeries('${s.id}')">
-        ✏️ Modifier mon pronostic
-      </button>
+        return `
+          <div class="reveal-row">
+            <div class="reveal-av" style="background:${pl.avatar_color}22;color:${pl.avatar_color}">
+              ${initials(pl.name)}
+            </div>
+            <span style="flex:1;font-weight:600">
+              ${pl.name}${isMe ? ' <span style="font-size:10px;color:var(--accent)">toi</span>' : ''}
+            </span>
+            <span style="font-size:13px;font-family:'Barlow Condensed',sans-serif;font-weight:700">
+              ${pr.predicted_series_winner} en ${pr.predicted_series_games}
+            </span>
+          </div>
+        `;
+      }).join('')}
     `;
   } else {
-    body = `
-      <div class="divider"></div>
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Vainqueur de la série</div>
-      <div class="team-picker" id="sw-${pid}">
-        <button class="team-btn ${currentWinner===s.team1?'selected':''}" onclick="pickTeam('${pid}','${s.team1}')">${s.team1}</button>
-        <button class="team-btn ${currentWinner===s.team2?'selected':''}" onclick="pickTeam('${pid}','${s.team2}')">${s.team2}</button>
-      </div>
+    const tmp = predTemp[pid] || {};
+    const currentWinner = tmp.winner !== undefined ? tmp.winner : (mp?.predicted_series_winner || '');
+    const currentGames = tmp.games !== undefined ? tmp.games : (mp ? Number(mp.predicted_series_games) : null);
+    const editing = !mp || isEditingSeries(s.id);
 
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">Score de la série</div>
-      <div class="games-row" id="sg-${pid}">
-        ${[4,5,6,7].map(n=>`<button class="games-btn ${currentGames===n?'selected':''}" onclick="pickGames('${pid}',${n})">en ${n}</button>`).join('')}
-      </div>
+    if (!editing && mp) {
+      body = `
+        <div class="divider"></div>
 
-      ${(currentWinner || currentGames) ? `
-        <div class="my-pred-bar" style="margin-top:12px">
-          <span class="my-pred-icon">📝</span>
+        <div class="my-pred-bar" style="margin-top:4px">
+          <span class="my-pred-icon">✅</span>
           <div>
-            <div class="my-pred-text">${currentWinner||'?'} en ${currentGames||'?'}</div>
-            <div class="my-pred-sub">${mp ? 'Modification en cours' : 'Pronostic en cours'}</div>
+            <div class="my-pred-text">${mp.predicted_series_winner} en ${mp.predicted_series_games}</div>
+            <div class="my-pred-sub">Pronostic enregistré</div>
           </div>
         </div>
-      ` : ''}
 
-      ${sGames.length ? `
-        <div class="divider" style="margin-top:16px"></div>
-        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Pronostics par match</div>
-        ${sGames.map(g=>renderGamePredRow(g,s,mp,pid)).join('')}
-      ` : ''}
+        ${sGames.length ? `
+          <div style="margin-top:14px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">
+              Mes pronostics par match
+            </div>
+            ${(mp.game_predictions || []).length
+              ? sGames.map(g => {
+                  const gp = (mp.game_predictions || []).find(p => Number(p.game_number) === Number(g.game_number));
+                  return `
+                    <div class="game-row">
+                      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
+                      <span style="flex:1;font-size:12px;color:var(--muted)">${fmtDate(g.start_time)}</span>
+                      <span class="badge badge-gray">${gp?.predicted_winner || '—'}</span>
+                    </div>
+                  `;
+                }).join('')
+              : `<div style="font-size:13px;color:var(--muted)">Aucun pronostic par match enregistré.</div>`
+            }
+          </div>
+        ` : ''}
 
-      <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitPred('${s.id}','${pid}','${s.team1}','${s.team2}')">
-        ${mp ? '✅ Enregistrer les modifications' : '✅ Valider mes pronostics'}
-      </button>
-
-      ${mp ? `
-        <button class="btn btn-ghost btn-block" style="margin-top:8px" onclick="cancelEditSeries('${s.id}','${pid}')">
-          Annuler
+        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="startEditingSeries('${s.id}')">
+          ✏️ Modifier mon pronostic
         </button>
-      ` : ''}
-    `;
-  }
-}
+      `;
+    } else {
+      body = `
+        <div class="divider"></div>
 
-  return `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted)">${s.conference&&s.conference!=='—'?s.conference+' · ':''}${s.round}</div>
-      ${badge}
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">
+          Vainqueur de la série
+        </div>
+        <div class="team-picker" id="sw-${pid}">
+          <button class="team-btn ${currentWinner === s.team1 ? 'selected' : ''}" onclick="pickTeam('${pid}','${s.team1}')">${s.team1}</button>
+          <button class="team-btn ${currentWinner === s.team2 ? 'selected' : ''}" onclick="pickTeam('${pid}','${s.team2}')">${s.team2}</button>
+        </div>
+
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px">
+          Score de la série
+        </div>
+        <div class="games-row" id="sg-${pid}">
+          ${[4, 5, 6, 7].map(n => `
+            <button class="games-btn ${currentGames === n ? 'selected' : ''}" onclick="pickGames('${pid}',${n})">en ${n}</button>
+          `).join('')}
+        </div>
+
+        ${(currentWinner || currentGames) ? `
+          <div class="my-pred-bar" style="margin-top:12px">
+            <span class="my-pred-icon">📝</span>
+            <div>
+              <div class="my-pred-text">${currentWinner || '?'} en ${currentGames || '?'}</div>
+              <div class="my-pred-sub">${mp ? 'Modification en cours' : 'Pronostic en cours'}</div>
+            </div>
+          </div>
+        ` : ''}
+
+        ${sGames.length ? `
+          <div class="divider" style="margin-top:16px"></div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">
+            Pronostics par match
+          </div>
+          ${sGames.map(g => renderGamePredRow(g, s, mp, pid)).join('')}
+        ` : ''}
+
+        <button class="btn btn-primary btn-block" style="margin-top:14px" onclick="submitPred('${s.id}','${pid}','${s.team1}','${s.team2}')">
+          ${mp ? '✅ Enregistrer les modifications' : '✅ Valider mes pronostics'}
+        </button>
+
+        ${mp ? `
+          <button class="btn btn-ghost btn-block" style="margin-top:8px" onclick="cancelEditSeries('${s.id}','${pid}')">
+            Annuler
+          </button>
+        ` : ''}
+      `;
+    }
+  }
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted)">
+          ${s.conference && s.conference !== '—' ? s.conference + ' · ' : ''}${s.round}
+        </div>
+        ${badge}
+      </div>
+
+      <div class="vs-block">
+        ${vsTeamHTML(s.team1)}
+        <div class="vs-sep">VS</div>
+        ${vsTeamHTML(s.team2, true)}
+      </div>
+
+      ${body}
     </div>
-    <div class="vs-block">
-      ${vsTeamHTML(s.team1)}
-      <div class="vs-sep">VS</div>
-      ${vsTeamHTML(s.team2, true)}
-    </div>
-    ${body}
-  </div>`;
+  `;
 }
 
 function renderMyPicks() {
@@ -2072,7 +2632,40 @@ function renderMyPicks() {
   });
 
   return `
-    <div class="section-label">Pronostics MVP</div>
+    <div class="section-label">🏆 Pronostic Champion</div>
+    <div class="card">
+      ${mvpRounds.map(round => {
+        const pred = myChampionPred(round);
+        const predTeam = pred?.predicted_champion || '';
+        const logo = predTeam ? teamLogo(predTeam) : null;
+        const locked = isChampionLocked(round);
+        const actualChampion = String(state.settings['actual_champion'] ?? '').trim();
+        const hit = actualChampion && predTeam.toLowerCase() === actualChampion.toLowerCase();
+        return `
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+            ${predTeam
+              ? `<div style="width:44px;height:44px;border-radius:10px;overflow:hidden;background:rgba(255,255,255,0.06);flex-shrink:0;display:flex;align-items:center;justify-content:center">
+                  ${logo ? `<img src="${logo}" style="width:36px;height:36px;object-fit:contain" onerror="this.style.display='none'">` : '🏀'}
+                </div>`
+              : `<div style="width:44px;height:44px;border-radius:10px;background:rgba(255,255,255,0.04);border:1.5px dashed var(--border2);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🏆</div>`}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:14px">${round}</div>
+              <div style="font-size:12px;color:${predTeam?'var(--text)':'var(--muted)'};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${predTeam || 'Aucun pronostic'}
+              </div>
+            </div>
+            ${actualChampion && predTeam
+              ? `<span class="badge ${hit?'badge-green':'badge-red'}">${hit?'✓ Correct':'✗ Raté'}</span>`
+              : locked
+                ? `<span class="badge badge-amber">🔒</span>`
+                : `<button class="btn btn-sm ${predTeam?'':'btn-primary'}" onclick="openChampionPicker('${round}')">
+                    ${predTeam ? '✏️ Modifier' : '🏆 Choisir'}
+                  </button>`}
+          </div>
+        `;
+      }).join('')}
+    </div>
+    <div class="section-label">👑 Pronostics MVP</div>
     <div class="card">
       ${mvpRounds.map(round => {
         const pred = myMvpPred(round);
@@ -2146,9 +2739,10 @@ function renderMyPickCard(s, p) {
   const isFinished = s.status === 'finished';
   const isLocked = s.status === 'locked' || isLockedSeriesForMyPick(s);
 
-  const ptsSW = Number(state.settings['points_series_winner'] ?? 3);
-  const ptsSE = Number(state.settings['points_series_exact'] ?? 5);
-  const ptsMW = Number(state.settings['points_match_winner'] ?? 2);
+  const roundPoints = getRoundPoints(s.round);
+  const ptsMW = roundPoints.match;
+  const ptsSW = roundPoints.series;
+  const ptsSE = roundPoints.exact;
   const ptsMvpR1 = Number(state.settings['points_mvp_premier_tour'] ?? 1);
   const ptsMvpSF = Number(state.settings['points_mvp_demi_finales'] ?? 2);
   const ptsMvpCF = Number(state.settings['points_mvp_finales_conference'] ?? 4);
@@ -2345,25 +2939,40 @@ function pickGameWinner(seriesId, gid, gameNumber, team) {
   });
 }
 async function submitPred(seriesId, pid, team1, team2) {
-  const mp=myPred(seriesId);
-  const tmp=predTemp[pid]||{};
-  // BUG FIX: merge temp with saved, temp takes priority
-  const winner = tmp.winner !== undefined ? tmp.winner : mp?.predicted_series_winner;
-  const games  = tmp.games  !== undefined ? tmp.games  : (mp ? Number(mp.predicted_series_games) : null);
-  if(!winner) return toast('Choisis le vainqueur !');
-  if(!games)  return toast('Choisis le nombre de matchs !');
+  const mp = myPred(seriesId);
+  const tmp = predTemp[pid] || {};
 
-  // Merge game predictions: temp overrides saved
-  const gpKey=`gp_${seriesId}`;
-  const tmpGP=predTemp[gpKey]?.gamePreds||{};
-  const existingGP=mp?.game_predictions||[];
-  const sGames=state.games[seriesId]||[];
-  const gamePredsList=sGames.map(g=>{
-    const tw=tmpGP[g.game_number];
-    const ew=existingGP.find(p=>Number(p.game_number)===Number(g.game_number))?.predicted_winner;
-    const pw=tw||ew||null;
-    return pw?{game_number:Number(g.game_number),predicted_winner:pw}:null;
+  const winner = tmp.winner !== undefined ? tmp.winner : mp?.predicted_series_winner;
+  const games = tmp.games !== undefined ? tmp.games : (mp ? Number(mp.predicted_series_games) : null);
+
+  if (!winner) return toast('Choisis le vainqueur !');
+  if (!games) return toast('Choisis le nombre de matchs !');
+
+  const gpKey = `gp_${seriesId}`;
+  const tmpGP = predTemp[gpKey]?.gamePreds || {};
+  const existingGP = mp?.game_predictions || [];
+  const sGames = state.games[seriesId] || [];
+
+  const gamePredsList = sGames.map(g => {
+    const tw = tmpGP[g.game_number];
+    const ew = existingGP.find(p => Number(p.game_number) === Number(g.game_number))?.predicted_winner;
+    const pw = tw || ew || null;
+    return pw ? { game_number: Number(g.game_number), predicted_winner: pw } : null;
   }).filter(Boolean);
+
+  // ✅ Nouveau verrou : obliger tous les matchs à être pronostiqués
+  const unlockedGames = sGames.filter(g => g.status !== 'finished');
+
+  const missingGameNumbers = unlockedGames
+    .filter(g => {
+      const gp = gamePredsList.find(p => Number(p.game_number) === Number(g.game_number));
+      return !gp || !gp.predicted_winner;
+    })
+    .map(g => g.game_number);
+
+  if (missingGameNumbers.length) {
+    return toast('Tu dois renseigner les 7 matchs avant de valider.');
+  }
 
   const ok = await savePrediction(seriesId, winner, games, gamePredsList);
   if (!ok) return;
@@ -2501,35 +3110,193 @@ function cancelEditSeries(seriesId, pid) {
 }
 
 // ── SERIES PAGE ──
-function renderSeriesPage() {
-  if(!state.series.length) return `<div class="empty"><span class="empty-icon">🏀</span>Aucune série ajoutée.<br>L'admin peut en ajouter.</div>`;
-  const rounds=[...new Set(state.series.map(s=>s.round))];
-  return rounds.map(r=>{
-    return `<div class="section-label">${r}</div>`+state.series.filter(s=>s.round===r).map(s=>{
-      const games=state.games[s.id]||[], preds=allPreds(s.id), locked=isLocked(s);
-      return `<div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted)">${s.conference&&s.conference!=='—'?s.conference+' · ':''}${s.round}</span>
-          ${s.status==='finished'?`<span class="badge badge-green">🏆 ${s.series_winner} — ${s.series_games} matchs</span>`:locked?`<span class="badge badge-amber">🔒 Verrouillé</span>`:`<span class="badge badge-green">Ouvert</span>`}
+function toggleSeriesRound(round) {
+  const safeId = round.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
+  const body   = document.getElementById('sr-body-' + safeId);
+  const arrow  = document.getElementById('sr-arrow-' + safeId);
+  if (!body) return;
+
+  const isOpen = seriesPageOpen[round] !== false;
+  seriesPageOpen[round] = !isOpen;
+
+  if (isOpen) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    body.style.overflow  = 'hidden';
+    requestAnimationFrame(() => {
+      body.style.transition = 'max-height .35s cubic-bezier(.4,0,.2,1), opacity .28s ease';
+      body.style.maxHeight  = '0';
+      body.style.opacity    = '0';
+    });
+    if (arrow) { arrow.style.transition = 'transform .35s ease'; arrow.style.transform = 'rotate(0deg)'; }
+  } else {
+    body.style.maxHeight  = '0';
+    body.style.overflow   = 'hidden';
+    body.style.opacity    = '0';
+    body.style.display    = 'block';
+    body.style.transition = 'max-height .38s cubic-bezier(.4,0,.2,1), opacity .3s ease';
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        body.style.maxHeight = body.scrollHeight + 'px';
+        body.style.opacity   = '1';
+      });
+    });
+    body.addEventListener('transitionend', () => {
+      body.style.overflow  = 'visible';
+      body.style.maxHeight = 'none';
+    }, { once: true });
+    if (arrow) { arrow.style.transition = 'transform .35s ease'; arrow.style.transform = 'rotate(180deg)'; }
+  }
+}
+
+function renderSeriesPageInner() {
+  const ROUND_ORDER = ['Premier tour','Demi-finales','Finales de conférence','Finales NBA'];
+  const rounds = [...new Set(state.series.map(s => s.round))]
+    .sort((a,b) => ROUND_ORDER.indexOf(a) - ROUND_ORDER.indexOf(b));
+
+  return rounds.map(r => {
+    const seriesInRound = state.series.filter(s => s.round === r);
+
+    // Round-level status: finished if all done, live if any locked/live, upcoming otherwise
+    const allFinished = seriesInRound.every(s => s.status === 'finished');
+    const anyLive     = seriesInRound.some(s => {
+      if (s.status === 'finished') return false;
+      if (isLocked(s)) return true;
+      return false;
+    });
+    const roundBadge = allFinished
+      ? `<span class="badge badge-green">✓ Terminé</span>`
+      : anyLive
+        ? `<span class="badge badge-amber" style="gap:6px"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);animation:pulse 1.4s infinite"></span>En cours</span>`
+        : `<span class="badge badge-gray">À venir</span>`;
+
+    // Count finished series
+    const finishedCount = seriesInRound.filter(s => s.status === 'finished').length;
+    const total = seriesInRound.length;
+
+    const isOpen = seriesPageOpen[r] !== false; // open by default
+    if (seriesPageOpen[r] === undefined) seriesPageOpen[r] = true;
+
+    const seriesHTML = seriesInRound.map(s => {
+      const allGames = state.games[s.id] || [];
+      const preds = allPreds(s.id);
+      const locked = isLocked(s);
+
+      // Compute live score from finished games
+      const finishedGames = allGames.filter(g => g.status === 'finished');
+      let wins1 = 0, wins2 = 0;
+      finishedGames.forEach(g => {
+        if (g.winner === s.team1) wins1++;
+        else if (g.winner === s.team2) wins2++;
+      });
+
+      // Series status label + badge
+      let statusBadge = '';
+      if (s.status === 'finished') {
+        statusBadge = `<span class="badge badge-green">✓ Terminé</span>`;
+      } else if (locked && finishedGames.length > 0) {
+        statusBadge = `<span class="badge badge-amber" style="gap:5px"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--amber);animation:pulse 1.4s infinite"></span>En cours</span>`;
+      } else if (locked) {
+        statusBadge = `<span class="badge badge-amber">🔒 Verrouillé</span>`;
+      } else {
+        statusBadge = `<span class="badge badge-green">Ouvert</span>`;
+      }
+
+      // Score display
+      const showScore = finishedGames.length > 0;
+      const scoreHTML = showScore
+        ? `<div style="display:flex;align-items:center;gap:8px;margin:8px 0">
+            <span style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;color:${wins1>wins2?'var(--green)':wins1<wins2?'var(--muted)':'var(--text)'}">${wins1}</span>
+            <span style="font-size:14px;color:var(--muted);font-weight:700">–</span>
+            <span style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;color:${wins2>wins1?'var(--green)':wins2<wins1?'var(--muted)':'var(--text)'}">${wins2}</span>
+          </div>`
+        : '';
+
+      // Filter games to display:
+      // - If finished: only show played games (hide unplayed ones)
+      // - If in progress: show played + next upcoming (first non-finished)
+      // - If upcoming: show nothing (no games played yet)
+      let gamesToShow = [];
+      if (s.status === 'finished') {
+        gamesToShow = allGames.filter(g => g.status === 'finished');
+      } else if (locked) {
+        const nextGame = allGames.find(g => g.status !== 'finished');
+        gamesToShow = [
+          ...allGames.filter(g => g.status === 'finished'),
+          ...(nextGame ? [nextGame] : [])
+        ];
+      }
+      // sort by game_number
+      gamesToShow.sort((a,b) => a.game_number - b.game_number);
+
+      const gamesHTML = gamesToShow.length ? `
+        <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+          ${gamesToShow.map(g => `
+            <div class="game-row">
+              <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
+              <span style="flex:1;font-size:12px;color:var(--muted)">${g.start_time ? fmtDate(g.start_time) : ''}</span>
+              ${g.status === 'finished'
+                ? `<span class="badge badge-green">🏆 ${g.winner}</span>`
+                : isGameLocked(g)
+                  ? `<span class="badge badge-amber">🔒 À venir</span>`
+                  : `<span class="badge badge-gray">À venir</span>`}
+            </div>`).join('')}
+        </div>` : '';
+
+      return `<div class="card" style="margin-top:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted)">
+            ${s.conference && s.conference !== '—' ? s.conference + ' · ' : ''}${s.round}
+          </span>
+          ${statusBadge}
         </div>
-        <div class="vs-block" style="margin-bottom:8px">
-          ${vsTeamHTML(s.team1)}
-          <div class="vs-sep">VS</div>
-          ${vsTeamHTML(s.team2, true)}
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1">
+            ${vsTeamHTML(s.team1)}
+          </div>
+          ${showScore
+            ? scoreHTML
+            : `<div class="vs-sep">VS</div>`}
+          <div style="flex:1;display:flex;justify-content:flex-end">
+            ${vsTeamHTML(s.team2, true)}
+          </div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
           <span class="badge badge-gray">${preds.length} pronostic(s)</span>
-          ${s.start_time?`<span class="badge badge-blue">⏰ ${fmtDate(s.start_time)}</span>`:''}
+          ${s.start_time ? `<span class="badge badge-blue">⏰ ${fmtDate(s.start_time)}</span>` : ''}
         </div>
-        ${games.length?`<div style="margin-top:10px">${games.map(g=>`
-          <div class="game-row">
-            <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
-            <span style="flex:1;font-size:12px">${fmtDate(g.start_time)}</span>
-            ${g.status==='finished'?`<span class="badge badge-green">🏆 ${g.winner}</span>`:isGameLocked(g)?`<span class="badge badge-amber">🔒</span>`:`<span class="badge badge-gray">À venir</span>`}
-          </div>`).join('')}</div>`:''}
+        ${gamesHTML}
       </div>`;
     }).join('');
+
+    const safeId = r.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
+    return `
+      <div style="margin:0 12px 6px">
+        <button onclick="toggleSeriesRound('${r}')"
+          style="width:100%;display:flex;align-items:center;justify-content:space-between;
+                 background:var(--card);border:1px solid var(--border2);border-radius:16px;
+                 padding:14px 16px;cursor:pointer;transition:border-color .2s,background .2s;text-align:left"
+          onmouseover="this.style.background='var(--card2)';this.style.borderColor='rgba(255,255,255,0.2)'"
+          onmouseout="this.style.background='var(--card)';this.style.borderColor='var(--border2)'">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:16px;
+                         text-transform:uppercase;letter-spacing:0.05em;color:var(--text)">${r}</span>
+            ${roundBadge}
+            <span style="font-size:11px;color:var(--muted)">${finishedCount}/${total}</span>
+          </div>
+          <span id="sr-arrow-${safeId}" style="font-size:16px;color:var(--muted);
+                       transform:rotate(${isOpen?'180':'0'}deg);display:inline-block">▼</span>
+        </button>
+        <div id="sr-body-${safeId}"
+             style="margin-top:2px;${isOpen?'':'display:none;max-height:0;overflow:hidden;opacity:0'}">
+          ${seriesHTML}
+        </div>
+      </div>`;
   }).join('');
+}
+
+function renderSeriesPage() {
+  if(!state.series.length) return `<div class="empty"><span class="empty-icon">🏀</span>Aucune série ajoutée.<br>L'admin peut en ajouter.</div>`;
+  return `<div id="series-page-content" style="padding-top:12px">${renderSeriesPageInner()}</div>`;
 }
 
 // ── ADMIN ──
@@ -2556,39 +3323,29 @@ function renderAdmin() {
 function setAP(p){state.adminPage=p;render();}
 
 async function checkAdmin() {
-  const code=document.getElementById('admin-code-input').value.trim();
-  const stored=String(state.settings['admin_password']??'').trim();
-  if(code===stored){state.adminAuthed=true;render();}
-  else toast('❌ Code incorrect');
+  const input = document.getElementById('admin-code-input');
+  const code = (input?.value || '').trim();
+  const storedRaw = state.settings['admin_password'];
+  const stored = String(storedRaw ?? '').trim();
+
+  console.log('admin typed =', code);
+  console.log('admin stored =', storedRaw, '=> normalized =', stored);
+
+  if (!stored) {
+    toast("❌ Aucun mot de passe admin n'est configuré");
+    return;
+  }
+
+  if (code === stored) {
+    state.adminAuthed = true;
+    state.currentPage = 'admin';
+    render();
+    return;
+  }
+
+  toast('❌ Code incorrect');
 }
 
-function renderAdminSeries() {
-  return `
-    <div class="section-label">Nouvelle série</div>
-    <div class="card">
-      <div class="grid2" style="margin-bottom:8px">
-        <div><label>Équipe 1</label><input id="a-t1" placeholder="Boston Celtics" style="margin-top:5px"></div>
-        <div><label>Équipe 2</label><input id="a-t2" placeholder="Miami Heat" style="margin-top:5px"></div>
-      </div>
-      <div class="grid2" style="margin-bottom:8px">
-        <div><label>Tour</label>
-          <select id="a-round" style="margin-top:5px">
-            <option>Premier tour</option><option>Demi-finales</option>
-            <option>Finales de conférence</option><option>Finales NBA</option>
-          </select>
-        </div>
-        <div><label>Conférence</label>
-          <select id="a-conf" style="margin-top:5px">
-            <option>Est</option><option>Ouest</option><option>—</option>
-          </select>
-        </div>
-      </div>
-      <div style="margin-bottom:12px"><label>Début (verrouillage auto)</label><input id="a-start" type="datetime-local" style="margin-top:5px"></div>
-      <button class="btn btn-primary btn-block" onclick="doAddSeries()">Ajouter la série</button>
-    </div>
-    <div class="section-label">Séries en cours</div>
-    ${!state.series.length?`<div class="empty">Aucune série</div>`:state.series.map(s=>renderAdminCard(s)).join('')}`;
-}
 
 function renderAdminCard(s) {
   const locked=isLocked(s), games=state.games[s.id]||[], sid=s.id.replace(/-/g,'_');
@@ -2725,91 +3482,180 @@ async function doUpdateSeriesStartTime(seriesId, sid) {
   await updateSeriesStartTime(seriesId, iso);
 }
 
+function renderAdminSeries() {
+  return `
+    <div class="section-label">Nouvelle série</div>
+    <div class="card">
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label>Équipe 1</label><input id="a-t1" placeholder="Boston Celtics" style="margin-top:5px"></div>
+        <div><label>Équipe 2</label><input id="a-t2" placeholder="Miami Heat" style="margin-top:5px"></div>
+      </div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><label>Tour</label>
+          <select id="a-round" style="margin-top:5px">
+            <option>Premier tour</option><option>Demi-finales</option>
+            <option>Finales de conférence</option><option>Finales NBA</option>
+          </select>
+        </div>
+        <div><label>Conférence</label>
+          <select id="a-conf" style="margin-top:5px">
+            <option>Est</option><option>Ouest</option><option>—</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:12px"><label>Début (verrouillage auto)</label><input id="a-start" type="datetime-local" style="margin-top:5px"></div>
+      <button class="btn btn-primary btn-block" onclick="doAddSeries()">Ajouter la série</button>
+    </div>
+    <div class="section-label">Séries en cours</div>
+    ${!state.series.length?`<div class="empty">Aucune série</div>`:state.series.map(s=>renderAdminCard(s)).join('')}`;
+}
+
 function renderAdminSettings() {
-  const g=v=>state.settings[v]??'?';
+  const g = v => state.settings[v] ?? '?';
+
   return `
     <div class="section-label">Barème des points</div>
-    <div class="card">
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1"><div style="font-size:14px;font-weight:600">Vainqueur d'un match</div><div style="font-size:11px;color:var(--muted);margin-top:2px">Bon pronostic sur un match individuel</div></div>
-        <input id="s-pts-game" type="number" min="0" value="${g('points_match_winner')}" style="width:70px;text-align:center">
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1"><div style="font-size:14px;font-weight:600">Vainqueur de la série</div><div style="font-size:11px;color:var(--muted);margin-top:2px">Bonne équipe, peu importe le score</div></div>
-        <input id="s-pts-series" type="number" min="0" value="${g('points_series_winner')}" style="width:70px;text-align:center">
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0">
-        <div style="flex:1"><div style="font-size:14px;font-weight:600">Score exact de la série</div><div style="font-size:11px;color:var(--muted);margin-top:2px">Bon vainqueur ET bon nombre de matchs</div></div>
-        <input id="s-pts-exact" type="number" min="0" value="${g('points_series_exact')}" style="width:70px;text-align:center">
-      </div>
-      <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="doSaveSettings()">💾 Sauvegarder</button>
-    </div>
-    <div class="section-label">MVP Playoffs</div>
+
+    ${[
+      ['Premier tour', 'premier_tour'],
+      ['Demi-finales', 'demi_finales'],
+      ['Finales de conférence', 'finales_conference'],
+      ['Finales NBA', 'finales_nba']
+    ].map(([label, key]) => `
       <div class="card">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;margin-bottom:12px;text-transform:uppercase">
+          ${label}
+        </div>
+
         <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
           <div style="flex:1">
-            <div style="font-size:14px;font-weight:600">MVP officiel</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">Nom du joueur qui a réellement été MVP</div>
+            <div style="font-size:14px;font-weight:600">Vainqueur d'un match</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">Bon pronostic sur un match individuel</div>
           </div>
-          <input id="s-actual-mvp" type="text" value="${g('actual_mvp')}" style="width:140px;text-align:center">
+          <input id="s-pts-game-${key}" type="number" min="0" value="${g(`points_match_winner_${key}`) !== '?' ? g(`points_match_winner_${key}`) : 2}" style="width:70px;text-align:center">
         </div>
 
         <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-          <div style="flex:1"><div style="font-size:14px;font-weight:600">Points MVP Premier tour</div></div>
-          <input id="s-mvp-r1" type="number" min="0" value="${g('points_mvp_premier_tour')}" style="width:70px;text-align:center">
-        </div>
-
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-          <div style="flex:1"><div style="font-size:14px;font-weight:600">Points MVP Demi-finales</div></div>
-          <input id="s-mvp-sf" type="number" min="0" value="${g('points_mvp_demi_finales')}" style="width:70px;text-align:center">
-        </div>
-
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-          <div style="flex:1"><div style="font-size:14px;font-weight:600">Points MVP Finales de conf</div></div>
-          <input id="s-mvp-cf" type="number" min="0" value="${g('points_mvp_finales_conference')}" style="width:70px;text-align:center">
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:600">Vainqueur de la série</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">Bonne équipe, peu importe le score</div>
+          </div>
+          <input id="s-pts-series-${key}" type="number" min="0" value="${g(`points_series_winner_${key}`) !== '?' ? g(`points_series_winner_${key}`) : 3}" style="width:70px;text-align:center">
         </div>
 
         <div style="display:flex;align-items:center;gap:10px;padding:10px 0">
-          <div style="flex:1"><div style="font-size:14px;font-weight:600">Points MVP Finales NBA</div></div>
-          <input id="s-mvp-fn" type="number" min="0" value="${g('points_mvp_finales_nba')}" style="width:70px;text-align:center">
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:600">Score exact de la série</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">Bon vainqueur ET bon nombre de matchs</div>
+          </div>
+          <input id="s-pts-exact-${key}" type="number" min="0" value="${g(`points_series_exact_${key}`) !== '?' ? g(`points_series_exact_${key}`) : 5}" style="width:70px;text-align:center">
         </div>
-
-        <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="doSaveSettings()">💾 Sauvegarder</button>
       </div>
+    `).join('')}
+
+    <button class="btn btn-primary btn-block" style="margin:0 12px 10px" onclick="doSaveSettings()">💾 Sauvegarder</button>
+
+    <div class="section-label">🏆 Champion NBA</div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:600">Champion officiel</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Équipe qui a réellement remporté le titre</div>
+        </div>
+        <input id="s-actual-champion" type="text" value="${g('actual_champion')}" style="width:140px;text-align:center">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Points Champion Premier tour</div></div>
+        <input id="s-champ-r1" type="number" min="0" value="${g('points_champion_premier_tour') !== '?' ? g('points_champion_premier_tour') : 1}" style="width:70px;text-align:center">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Points Champion Demi-finales</div></div>
+        <input id="s-champ-sf" type="number" min="0" value="${g('points_champion_demi_finales') !== '?' ? g('points_champion_demi_finales') : 2}" style="width:70px;text-align:center">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Points Champion Finales de conf</div></div>
+        <input id="s-champ-cf" type="number" min="0" value="${g('points_champion_finales_conference') !== '?' ? g('points_champion_finales_conference') : 4}" style="width:70px;text-align:center">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Points Champion Finales NBA</div></div>
+        <input id="s-champ-fn" type="number" min="0" value="${g('points_champion_finales_nba') !== '?' ? g('points_champion_finales_nba') : 8}" style="width:70px;text-align:center">
+      </div>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="doSaveSettings()">💾 Sauvegarder</button>
+    </div>
+
+    <div class="section-label">👑 MVP Playoffs</div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:600">MVP officiel</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Nom du joueur qui a réellement été MVP</div>
+        </div>
+        <input id="s-actual-mvp" type="text" value="${g('actual_mvp')}" style="width:140px;text-align:center">
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Points MVP Premier tour</div></div>
+        <input id="s-mvp-r1" type="number" min="0" value="${g('points_mvp_premier_tour')}" style="width:70px;text-align:center">
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Points MVP Demi-finales</div></div>
+        <input id="s-mvp-sf" type="number" min="0" value="${g('points_mvp_demi_finales')}" style="width:70px;text-align:center">
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Points MVP Finales de conf</div></div>
+        <input id="s-mvp-cf" type="number" min="0" value="${g('points_mvp_finales_conference')}" style="width:70px;text-align:center">
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Points MVP Finales NBA</div></div>
+        <input id="s-mvp-fn" type="number" min="0" value="${g('points_mvp_finales_nba')}" style="width:70px;text-align:center">
+      </div>
+
+      <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="doSaveSettings()">💾 Sauvegarder</button>
+    </div>
+
     <div class="section-label">Sécurité</div>
     <div class="card">
       <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1"><div style="font-size:14px;font-weight:600">Code administrateur</div><div style="font-size:11px;color:var(--muted);margin-top:2px">Requis pour accéder à cet onglet</div></div>
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:600">Code administrateur</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Requis pour accéder à cet onglet</div>
+        </div>
         <input id="s-admin-code" type="text" value="${g('admin_password')}" style="width:120px;text-align:center">
       </div>
       <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="doSaveSettings()">💾 Sauvegarder</button>
     </div>
+
     <div class="section-label">Gérer les joueurs</div>
     <div class="card">
-      ${!state.players.length?`<div class="empty" style="padding:12px">Aucun joueur inscrit.</div>`:
-        state.players.map(p=>`
+      ${!state.players.length ? `<div class="empty" style="padding:12px">Aucun joueur inscrit.</div>` :
+        state.players.map(p => `
           <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
             <div style="width:34px;height:34px;border-radius:50%;background:${p.avatar_color};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${initials(p.name)}</div>
             <span style="flex:1;font-size:14px;font-weight:600">${p.name}</span>
             <button class="btn btn-sm" onclick="adminResetPin('${p.id}','${p.name}')">🔁 Remettre à zéro</button>
             <button class="btn btn-sm btn-danger" onclick="adminDeletePlayer('${p.id}','${p.name}')">🗑</button>
-          </div>`).join('')}
-    </div>`;
+          </div>
+        `).join('')}
+    </div>
+  `;
 }
 
 async function doSaveSettings() {
   const updates = {};
 
-  // ── Points classiques ──
-  const pg = document.getElementById('s-pts-game');
-  const ps = document.getElementById('s-pts-series');
-  const pe = document.getElementById('s-pts-exact');
-  const ac = document.getElementById('s-admin-code');
+  // ── Barème par round ──
+  ['premier_tour', 'demi_finales', 'finales_conference', 'finales_nba'].forEach(key => {
+    const pg = document.getElementById(`s-pts-game-${key}`);
+    const ps = document.getElementById(`s-pts-series-${key}`);
+    const pe = document.getElementById(`s-pts-exact-${key}`);
 
-  if (pg) updates['points_match_winner'] = parseInt(pg.value);
-  if (ps) updates['points_series_winner'] = parseInt(ps.value);
-  if (pe) updates['points_series_exact'] = parseInt(pe.value);
-  if (ac) updates['admin_password'] = ac.value;
+    if (pg) updates[`points_match_winner_${key}`] = parseInt(pg.value);
+    if (ps) updates[`points_series_winner_${key}`] = parseInt(ps.value);
+    if (pe) updates[`points_series_exact_${key}`] = parseInt(pe.value);
+  });
 
   // ── MVP ──
   const am  = document.getElementById('s-actual-mvp');
@@ -2817,12 +3663,25 @@ async function doSaveSettings() {
   const msf = document.getElementById('s-mvp-sf');
   const mcf = document.getElementById('s-mvp-cf');
   const mfn = document.getElementById('s-mvp-fn');
+  const ac  = document.getElementById('s-admin-code');
+
+  const ac2 = document.getElementById('s-actual-champion');
+  const cr1 = document.getElementById('s-champ-r1');
+  const csf = document.getElementById('s-champ-sf');
+  const ccf = document.getElementById('s-champ-cf');
+  const cfn = document.getElementById('s-champ-fn');
+  if (ac2) updates['actual_champion'] = ac2.value;
+  if (cr1) updates['points_champion_premier_tour'] = parseInt(cr1.value);
+  if (csf) updates['points_champion_demi_finales'] = parseInt(csf.value);
+  if (ccf) updates['points_champion_finales_conference'] = parseInt(ccf.value);
+  if (cfn) updates['points_champion_finales_nba'] = parseInt(cfn.value);
 
   if (am)  updates['actual_mvp'] = am.value;
   if (mr1) updates['points_mvp_premier_tour'] = parseInt(mr1.value);
   if (msf) updates['points_mvp_demi_finales'] = parseInt(msf.value);
   if (mcf) updates['points_mvp_finales_conference'] = parseInt(mcf.value);
   if (mfn) updates['points_mvp_finales_nba'] = parseInt(mfn.value);
+  if (ac)  updates['admin_password'] = ac.value;
 
   await saveSettings(updates);
 }
@@ -2990,11 +3849,11 @@ function renderBracket() {
       <div class="bracket-hint">← Fais défiler horizontalement →</div>
       <div class="bracket-wrap">
         <div class="bracket-scroll">
-          ${col(e1,   'Est — 1er tour')}
-          ${col(esf,  'Demi-finales Est')}
-          ${centerCol}
-          ${col(wsf,  'Demi-finales Ouest')}
           ${col(w1,   'Ouest — 1er tour')}
+          ${col(wsf,  'Demi-finales Ouest')}
+          ${centerCol}
+          ${col(esf,  'Demi-finales Est')}
+          ${col(e1,   'Est — 1er tour')}
         </div>
       </div>
     </div>
@@ -3120,9 +3979,10 @@ function openPlayerProfile(playerId) {
     const winOk = pred.predicted_series_winner === s.series_winner;
     const exactOk = winOk && Number(pred.predicted_series_games) === Number(s.series_games);
     // Recompute from settings (same logic as computeLeaderboard, avoids stale DB values)
-    const _ptsSW = Number(state.settings['points_series_winner'] ?? 3);
-    const _ptsSE = Number(state.settings['points_series_exact'] ?? 5);
-    const _ptsMW = Number(state.settings['points_match_winner'] ?? 2);
+    const roundPoints = getRoundPoints(s.round);
+    const _ptsSW = roundPoints.series;
+    const _ptsSE = roundPoints.exact;
+    const _ptsMW = roundPoints.match;
     const ptsSW  = winOk ? _ptsSW : 0;
     const ptsSE  = exactOk ? _ptsSE : 0;
     const sGamesForPts = state.games[s.id] || [];
@@ -3276,6 +4136,26 @@ function openPlayerProfile(playerId) {
         <div class="profile-section-hd">Séries terminées</div>
         ${seriesFin.length ? seriesRows : '<div style="padding:12px 20px;font-size:13px;color:var(--muted)">Aucune série terminée.</div>'}
 
+        <div class="profile-section-hd">Pronostic Champion</div>
+        ${(() => {
+          const champPreds = state.championPredictions.filter(p => p.player_id === playerId);
+          const actualChampion = String(state.settings['actual_champion'] ?? '').trim();
+          if (!champPreds.length) return '<div style="padding:12px 20px;font-size:13px;color:var(--muted)">Aucun pronostic champion.</div>';
+          return champPreds.map(cp => {
+            const logo = teamLogo(cp.predicted_champion);
+            const hit = actualChampion && cp.predicted_champion.toLowerCase() === actualChampion.toLowerCase();
+            return `<div class="profile-series-row">
+              <div class="profile-series-icon" style="width:36px;height:36px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center">
+                ${logo ? `<img src="${logo}" style="width:28px;height:28px;object-fit:contain" onerror="this.style.display='none'">` : '🏆'}
+              </div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">${cp.predicted_champion}</div>
+                <div style="font-size:11px;color:var(--muted)">${cp.playoff_round}</div>
+              </div>
+              <span class="badge ${actualChampion?(hit?'badge-green':'badge-red'):'badge-gray'}">${actualChampion?(hit?'✓ Correct':'✗ Raté'):'En attente'}</span>
+            </div>`;
+          }).join('');
+        })()}
         <div class="profile-section-hd">Pronostics MVP</div>
         ${mvpRows}
 
