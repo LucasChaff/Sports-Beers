@@ -450,6 +450,202 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
 }
 .mvp-other-box.active{border-color:var(--gold)}
 
+
+/* ── PLAYER PROFILE SHEET ── */
+.profile-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.78);
+  z-index:200;display:flex;align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(8px);animation:fadeIn .2s ease;
+}
+.profile-sheet{
+  width:100%;max-width:480px;
+  background:var(--card2);border-radius:24px 24px 0 0;
+  border-top:1px solid var(--border2);
+  padding:0 0 36px;max-height:92vh;overflow-y:auto;
+}
+.profile-hero{
+  position:relative;padding:28px 20px 20px;
+  background:linear-gradient(160deg,rgba(232,66,42,0.12),rgba(61,127,255,0.07));
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:16px;
+}
+.profile-avatar{
+  width:64px;height:64px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;
+  border:2px solid rgba(255,255,255,0.15);
+}
+.profile-name{
+  font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;
+  text-transform:uppercase;letter-spacing:0.04em;line-height:1;
+}
+.profile-sub{font-size:12px;color:var(--muted);margin-top:4px}
+.profile-close{
+  position:absolute;top:16px;right:16px;
+  width:32px;height:32px;border-radius:50%;
+  background:rgba(255,255,255,0.08);border:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:16px;color:var(--muted);
+  transition:all .2s;
+}
+.profile-close:hover{background:rgba(255,255,255,0.15);color:var(--text)}
+.profile-stats-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+  background:var(--border);border-bottom:1px solid var(--border);
+}
+.profile-stat{
+  background:var(--card2);padding:14px 8px;text-align:center;
+}
+.profile-stat-num{
+  font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;
+  line-height:1;margin-bottom:3px;
+}
+.profile-stat-lbl{font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted)}
+.profile-series-row{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:12px 20px;border-bottom:1px solid var(--border);
+}
+.profile-series-row:last-child{border-bottom:none}
+.profile-series-icon{
+  width:36px;height:36px;border-radius:10px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  margin-top:2px;
+}
+.profile-series-teams{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:800;text-transform:uppercase}
+.profile-series-pred{font-size:12px;color:var(--muted);margin-top:2px}
+.profile-series-result{font-size:11px;margin-top:3px}
+.profile-pts-badge{
+  margin-left:auto;flex-shrink:0;
+  font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;
+  min-width:40px;text-align:right;
+}
+.profile-accuracy-bar{
+  height:6px;border-radius:3px;background:var(--border2);
+  margin:0 20px 0;overflow:hidden;
+}
+.profile-accuracy-fill{height:100%;border-radius:3px;transition:width .6s ease}
+.profile-section-hd{
+  font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;
+  letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);
+  padding:16px 20px 8px;display:flex;align-items:center;gap:8px;
+}
+.profile-section-hd::after{content:'';flex:1;height:1px;background:var(--border)}
+
+
+/* ══ BRACKET ══════════════════════════════════════════ */
+.bracket-wrap{
+  overflow-x:auto;padding:16px 12px 24px;
+  -webkit-overflow-scrolling:touch;
+}
+.bracket-scroll{
+  display:flex;gap:0;min-width:700px;
+  align-items:center;
+}
+.bracket-round{
+  display:flex;flex-direction:column;
+  flex-shrink:0;
+}
+.bracket-round-label{
+  font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:10px;
+  letter-spacing:0.18em;text-transform:uppercase;color:var(--muted);
+  text-align:center;margin-bottom:10px;padding:0 8px;
+}
+/* connector column */
+.bracket-connectors{
+  display:flex;flex-direction:column;
+  flex-shrink:0;width:24px;
+  align-self:stretch;
+}
+.bracket-connector{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  position:relative;
+}
+.bracket-connector-line{
+  position:absolute;
+  border-color:rgba(255,255,255,0.12);border-style:solid;
+}
+/* matchup card */
+.bk-match{
+  width:148px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:12px;overflow:hidden;
+  margin:0 8px;
+  transition:border-color .2s;
+  flex-shrink:0;
+}
+.bk-match:hover{border-color:var(--border2)}
+.bk-match.finished{border-color:rgba(29,185,84,0.25)}
+.bk-match.live{border-color:rgba(245,158,11,0.35);box-shadow:0 0 14px rgba(245,158,11,0.12)}
+.bk-team{
+  display:flex;align-items:center;gap:6px;
+  padding:7px 8px;position:relative;
+}
+.bk-team+.bk-team{border-top:1px solid var(--border)}
+.bk-team.winner{background:rgba(29,185,84,0.08)}
+.bk-team.loser{opacity:0.45}
+.bk-logo{
+  width:24px;height:24px;flex-shrink:0;
+  object-fit:contain;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));
+}
+.bk-logo-placeholder{
+  width:24px;height:24px;border-radius:50%;
+  background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;
+  font-size:10px;flex-shrink:0;
+}
+.bk-team-name{
+  flex:1;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;
+  text-transform:uppercase;letter-spacing:0.02em;line-height:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.bk-score{
+  font-family:'DM Mono',monospace;font-size:13px;font-weight:500;
+  min-width:14px;text-align:right;flex-shrink:0;
+}
+.bk-score.winning{color:var(--green);font-weight:700}
+.bk-match-footer{
+  padding:4px 8px;border-top:1px solid var(--border);
+  font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;
+  text-align:center;color:var(--muted);
+}
+.bk-match-footer.live-dot::before{
+  content:'';display:inline-block;width:5px;height:5px;border-radius:50%;
+  background:var(--amber);margin-right:4px;vertical-align:middle;
+  animation:pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+/* trophy card for finals winner */
+.bk-trophy{
+  width:148px;margin:0 8px;
+  background:linear-gradient(135deg,rgba(245,197,24,0.12),rgba(232,66,42,0.06));
+  border:1px solid rgba(245,197,24,0.3);border-radius:12px;
+  padding:14px 10px;text-align:center;flex-shrink:0;
+}
+.bk-trophy-icon{font-size:28px;margin-bottom:6px}
+.bk-trophy-name{
+  font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;
+  text-transform:uppercase;color:var(--gold);letter-spacing:0.04em;
+}
+.bk-trophy-sub{font-size:10px;color:var(--muted);margin-top:3px}
+/* conference label */
+.bk-conf-label{
+  font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:800;
+  letter-spacing:0.15em;text-transform:uppercase;
+  color:var(--muted);padding:4px 16px;margin-bottom:4px;
+}
+/* empty slot */
+.bk-tbd{
+  width:148px;margin:0 8px;
+  background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.08);
+  border-radius:12px;padding:16px 8px;text-align:center;flex-shrink:0;
+}
+.bk-tbd-text{font-size:11px;color:var(--dim);font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:0.08em}
+/* mobile hint */
+.bracket-hint{
+  font-size:11px;color:var(--muted);text-align:center;padding:0 16px 4px;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+
 </style>
 </head>
 <body>
@@ -1140,6 +1336,7 @@ function render() {
   if (state.currentPage === 'leaderboard') pageContent = renderLeaderboard();
   else if (state.currentPage === 'predictions') pageContent = renderPredictions();
   else if (state.currentPage === 'mypicks') pageContent = renderMyPicks();
+  else if (state.currentPage === 'bracket') pageContent = renderBracket();
   else if (state.currentPage === 'series') pageContent = renderSeriesPage();
   else if (state.currentPage === 'admin') pageContent = renderAdmin();
 
@@ -1167,6 +1364,9 @@ function render() {
           </button>
           <button class="nav-item ${state.currentPage==='predictions'?'active':''}" onclick="navTo('predictions')">
             <span class="nav-icon">📋</span>Toutes les séries
+          </button>
+          <button class="nav-item ${state.currentPage==='bracket'?'active':''}" onclick="navTo('bracket')">
+            <span class="nav-icon">🗂</span>Bracket
           </button>
           <button class="nav-item ${state.currentPage==='series'?'active':''}" onclick="navTo('series')">
             <span class="nav-icon">📊</span>Séries
@@ -1295,13 +1495,13 @@ function renderLeaderboard() {
   const cp=state.currentPlayer;
   return `
     <div class="section-label">Leader actuel</div>
-    <div class="lb-podium">
+    <div class="lb-podium" onclick="openPlayerProfile('${first.id}')" style="cursor:pointer">
       <div class="lb-podium-rank">#1 · En tête</div>
       <div class="lb-podium-inner">
         <div class="lb-podium-avatar" style="background:${first.avatar_color}22;color:${first.avatar_color}">${initials(first.name)}</div>
         <div>
           <div class="lb-podium-name">${first.name}${first.id===cp?.id?' <span style="font-size:12px;color:var(--accent);font-family:Barlow,sans-serif;font-weight:600;text-transform:none">toi</span>':''}</div>
-          <div class="lb-podium-sub">${first.correct_predictions} bonne(s) série(s) sur ${first.predictions_count}</div>
+          <div class="lb-podium-sub">${first.correct_predictions} bonne(s) série(s) sur ${first.predictions_count} · <span style="color:var(--accent)">Voir profil →</span></div>
         </div>
         <div style="text-align:right">
           <div class="lb-podium-pts">${first.total_points}</div>
@@ -1310,7 +1510,7 @@ function renderLeaderboard() {
       </div>
     </div>
     ${rest.length?`<div class="section-label">Classement</div><div class="card">${rest.map((p,i)=>`
-      <div class="lb-row" style="${p.id===cp?.id?'background:rgba(232,66,42,0.06);margin:0 -16px;padding:10px 16px;border-radius:12px;':''}">
+      <div class="lb-row" onclick="openPlayerProfile('${p.id}')" style="cursor:pointer;${p.id===cp?.id?'background:rgba(232,66,42,0.06);margin:0 -16px;padding:10px 16px;border-radius:12px;':''}">
         <span class="lb-rank-num">${i+2}</span>
         <div class="lb-avatar-sm" style="background:${p.avatar_color}22;color:${p.avatar_color}">${initials(p.name)}</div>
         <div>
@@ -1329,8 +1529,11 @@ function renderLeaderboard() {
           <th style="text-align:left">Joueur</th>
           <th>🏀 Pts Matchs</th><th>📊 Pts Série</th><th>🎯 Pts Exact</th><th>👑 MVP</th><th>Pts Total</th>
         </tr></thead>
-        <tbody>${lb.map(p=>`<tr>
-          <td>${p.name}</td>
+        <tbody>${lb.map(p=>`<tr onclick="openPlayerProfile('${p.id}')" style="cursor:pointer" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+          <td style="display:flex;align-items:center;gap:8px">
+            <span style="width:24px;height:24px;border-radius:50%;background:${p.avatar_color};display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0">${initials(p.name)}</span>
+            ${p.name}
+          </td>
           <td style="color:var(--blue)">${p.points_games}</td>
           <td style="color:var(--accent)">${p.points_series_winner}</td>
           <td style="color:var(--green)">${p.points_series_exact}</td>
@@ -2105,6 +2308,181 @@ async function doSaveSettings() {
 }
 
 
+
+// ══════════════════════════════════════════════════
+// BRACKET
+// ══════════════════════════════════════════════════
+
+// Shortens team name for bracket display (max ~12 chars)
+function shortTeamName(name) {
+  const map = {
+    'boston celtics':'Celtics','brooklyn nets':'Nets','new york knicks':'Knicks',
+    'philadelphia 76ers':'Sixers','toronto raptors':'Raptors','chicago bulls':'Bulls',
+    'cleveland cavaliers':'Cavaliers','detroit pistons':'Pistons','indiana pacers':'Pacers',
+    'milwaukee bucks':'Bucks','atlanta hawks':'Hawks','charlotte hornets':'Hornets',
+    'miami heat':'Heat','orlando magic':'Magic','washington wizards':'Wizards',
+    'denver nuggets':'Nuggets','minnesota timberwolves':'T-Wolves','oklahoma city thunder':'Thunder',
+    'portland trail blazers':'Blazers','utah jazz':'Jazz','golden state warriors':'Warriors',
+    'los angeles clippers':'Clippers','los angeles lakers':'Lakers','phoenix suns':'Suns',
+    'sacramento kings':'Kings','dallas mavericks':'Mavs','houston rockets':'Rockets',
+    'memphis grizzlies':'Grizzlies','new orleans pelicans':'Pelicans','san antonio spurs':'Spurs',
+  };
+  return map[name.toLowerCase()] || name.split(' ').pop();
+}
+
+function bkTeamRow(name, score, isWinner, isLoser) {
+  const logo = teamLogo(name);
+  const cls = isWinner ? 'winner' : isLoser ? 'loser' : '';
+  const scoreCls = isWinner ? 'bk-score winning' : 'bk-score';
+  return `<div class="bk-team ${cls}">
+    ${logo
+      ? `<img class="bk-logo" src="${logo}" alt="" onerror="this.style.display='none'">`
+      : `<div class="bk-logo-placeholder">🏀</div>`}
+    <span class="bk-team-name">${shortTeamName(name)}</span>
+    ${score !== null ? `<span class="${scoreCls}">${score}</span>` : ''}
+  </div>`;
+}
+
+function bkMatchCard(series) {
+  if (!series) {
+    return `<div class="bk-tbd"><div class="bk-tbd-text">À déterminer</div></div>`;
+  }
+
+  const games = state.games[series.id] || [];
+  const finishedGames = games.filter(g => g.status === 'finished');
+
+  // Count wins per team
+  let score1 = 0, score2 = 0;
+  finishedGames.forEach(g => {
+    if (g.winner === series.team1) score1++;
+    else if (g.winner === series.team2) score2++;
+  });
+
+  const isFinished = series.status === 'finished';
+  const isLive = !isFinished && isLocked(series) && finishedGames.length > 0;
+  const hasStarted = isLocked(series);
+
+  const w = series.series_winner;
+  const t1Win = isFinished && w === series.team1;
+  const t1Lose = isFinished && w === series.team2;
+  const t2Win = isFinished && w === series.team2;
+  const t2Lose = isFinished && w === series.team1;
+
+  let footer = '';
+  if (isFinished) {
+    footer = `<div class="bk-match-footer">✓ Terminé</div>`;
+  } else if (isLive) {
+    footer = `<div class="bk-match-footer live-dot">En cours</div>`;
+  } else if (hasStarted) {
+    footer = `<div class="bk-match-footer">Verrouillé</div>`;
+  } else if (series.start_time) {
+    const d = new Date(series.start_time);
+    const label = d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
+    footer = `<div class="bk-match-footer">↗ ${label}</div>`;
+  } else {
+    footer = `<div class="bk-match-footer">À venir</div>`;
+  }
+
+  const showScore = hasStarted && finishedGames.length > 0;
+  const s1 = showScore ? score1 : null;
+  const s2 = showScore ? score2 : null;
+
+  return `<div class="bk-match ${isFinished?'finished':isLive?'live':''}">
+    ${bkTeamRow(series.team1, s1, t1Win, t1Lose)}
+    ${bkTeamRow(series.team2, s2, t2Win, t2Lose)}
+    ${footer}
+  </div>`;
+}
+
+function getSeriesByRoundConf(round, conf) {
+  return state.series.filter(s =>
+    s.round === round &&
+    (conf === null || s.conference === conf || s.conference === '—')
+  );
+}
+
+// Returns the series that produced a given winner (to chain bracket rounds)
+function getNextSeries(winner, round) {
+  if (!winner) return null;
+  return state.series.find(s => s.round === round && (s.team1 === winner || s.team2 === winner)) || null;
+}
+
+function renderBracket() {
+  // Gather series by round
+  const r1East = state.series.filter(s => s.round === 'Premier tour' && s.conference === 'Est');
+  const r1West = state.series.filter(s => s.round === 'Premier tour' && s.conference === 'Ouest');
+  const sfEast = state.series.filter(s => s.round === 'Demi-finales' && s.conference === 'Est');
+  const sfWest = state.series.filter(s => s.round === 'Demi-finales' && s.conference === 'Ouest');
+  const cfEast = state.series.filter(s => s.round === 'Finales de conférence' && s.conference === 'Est');
+  const cfWest = state.series.filter(s => s.round === 'Finales de conférence' && s.conference === 'Ouest');
+  const finals = state.series.find(s => s.round === 'Finales NBA') || null;
+
+  // Pad arrays to expected size with nulls
+  const pad = (arr, n) => [...arr, ...Array(Math.max(0, n - arr.length)).fill(null)];
+
+  const e1 = pad(r1East, 4);
+  const w1 = pad(r1West, 4);
+  const esf = pad(sfEast, 2);
+  const wsf = pad(sfWest, 2);
+  const ecf = pad(cfEast, 1);
+  const wcf = pad(cfWest, 1);
+
+  // Champion
+  const champion = finals?.series_winner || null;
+
+  // ── Build columns ────────────────────────────────────────────────
+  // We render: EastR1 | EastSF | EastCF | Finals+Trophy | WestCF | WestSF | WestR1
+
+  function col(seriesArr, label, justify='center') {
+    const cards = seriesArr.map(s => bkMatchCard(s));
+    // Space cards evenly
+    const gaps = seriesArr.length;
+    return `<div class="bracket-round">
+      <div class="bracket-round-label">${label}</div>
+      <div style="display:flex;flex-direction:column;gap:${gaps<=2?'32px':gaps<=4?'12px':'8px'};justify-content:${justify}">
+        ${cards.join('')}
+      </div>
+    </div>`;
+  }
+
+  // Center column: ECF + Finals + WCF stacked
+  const centerCol = `
+    <div class="bracket-round" style="display:flex;flex-direction:column;align-items:center;gap:16px">
+      <div class="bracket-round-label">Finales</div>
+      <div style="display:flex;flex-direction:column;gap:12px;align-items:center">
+        ${bkMatchCard(ecf[0])}
+        ${bkMatchCard(finals)}
+        ${bkMatchCard(wcf[0])}
+      </div>
+      ${champion ? `
+        <div class="bk-trophy">
+          <div class="bk-trophy-icon">🏆</div>
+          <div class="bk-trophy-name">${shortTeamName(champion)}</div>
+          <div class="bk-trophy-sub">Champions NBA 2026</div>
+        </div>` : ''}
+    </div>`;
+
+  // Empty state
+  if (!state.series.length) {
+    return `<div class="empty"><span class="empty-icon">🗂</span>Aucune série configurée.<br>L'admin peut les ajouter depuis l'onglet Séries.</div>`;
+  }
+
+  return `
+    <div style="padding:0 0 8px">
+      <div class="bracket-hint">← Fais défiler horizontalement →</div>
+      <div class="bracket-wrap">
+        <div class="bracket-scroll">
+          ${col(e1,   'Est — 1er tour')}
+          ${col(esf,  'Demi-finales Est')}
+          ${centerCol}
+          ${col(wsf,  'Demi-finales Ouest')}
+          ${col(w1,   'Ouest — 1er tour')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // ══════════════════════════════════════════════════
 // NBA TEAM LOGOS (ESPN CDN)
 // ══════════════════════════════════════════════════
@@ -2155,6 +2533,247 @@ function vsTeamHTML(name, alignRight=false) {
   </div>`;
 }
 
+
+
+// ══════════════════════════════════════════════════
+// PLAYER PROFILE SHEET
+// ══════════════════════════════════════════════════
+function openPlayerProfile(playerId) {
+  const existing = document.getElementById('profile-overlay');
+  if (existing) existing.remove();
+
+  const player = getPlayer(playerId);
+  if (!player) return;
+
+  const lbEntry = state.leaderboard.find(p => p.id === playerId) || {};
+  const playerPreds = state.predictions.filter(p => p.player_id === playerId);
+  const mvpPreds = state.mvpPredictions.filter(p => p.player_id === playerId);
+
+  // ── Stats globales
+  const totalPts   = lbEntry.total_points || 0;
+  const totalPreds = playerPreds.length;
+  const seriesFin  = state.series.filter(s => s.status === 'finished');
+
+  // Taux de réussite vainqueur série
+  let winOk = 0, winTotal = 0;
+  // Taux score exact
+  let exactOk = 0;
+  // Taux matchs individuels
+  let gameOk = 0, gameTotal = 0;
+
+  playerPreds.forEach(pred => {
+    const s = state.series.find(x => x.id === pred.series_id);
+    if (!s || s.status !== 'finished') return;
+    winTotal++;
+    if (pred.predicted_series_winner === s.series_winner) {
+      winOk++;
+      if (Number(pred.predicted_series_games) === Number(s.series_games)) exactOk++;
+    }
+    const sGames = state.games[s.id] || [];
+    const gPreds = pred.game_predictions || [];
+    sGames.forEach(g => {
+      if (g.status !== 'finished' || !g.winner) return;
+      gameTotal++;
+      const gp = gPreds.find(p => Number(p.game_number) === Number(g.game_number));
+      if (gp && gp.predicted_winner === g.winner) gameOk++;
+    });
+  });
+
+  const pctWin  = winTotal  ? Math.round(winOk  / winTotal  * 100) : null;
+  const pctExact= winTotal  ? Math.round(exactOk/ winTotal  * 100) : null;
+  const pctGame = gameTotal ? Math.round(gameOk / gameTotal * 100) : null;
+
+  // ── Rang dans le leaderboard
+  const rank = state.leaderboard.findIndex(p => p.id === playerId) + 1;
+
+  // ── Séries avec pronostic
+  const seriesRows = seriesFin.map(s => {
+    const pred = playerPreds.find(p => p.series_id === s.id);
+    if (!pred) return `
+      <div class="profile-series-row">
+        <div class="profile-series-icon" style="background:rgba(255,255,255,0.05)">—</div>
+        <div style="flex:1">
+          <div class="profile-series-teams">${s.team1} vs ${s.team2}</div>
+          <div class="profile-series-pred" style="color:var(--muted)">Pas de pronostic</div>
+        </div>
+        <div class="profile-pts-badge" style="color:var(--muted)">—</div>
+      </div>`;
+
+    const winOk = pred.predicted_series_winner === s.series_winner;
+    const exactOk = winOk && Number(pred.predicted_series_games) === Number(s.series_games);
+    // Recompute from settings (same logic as computeLeaderboard, avoids stale DB values)
+    const _ptsSW = Number(state.settings['points_series_winner'] ?? 3);
+    const _ptsSE = Number(state.settings['points_series_exact'] ?? 5);
+    const _ptsMW = Number(state.settings['points_match_winner'] ?? 2);
+    const ptsSW  = winOk ? _ptsSW : 0;
+    const ptsSE  = exactOk ? _ptsSE : 0;
+    const sGamesForPts = state.games[s.id] || [];
+    const gPredsForPts = pred.game_predictions || [];
+    let ptsGame = 0;
+    sGamesForPts.forEach(g => {
+      if (g.status !== 'finished' || !g.winner) return;
+      const gp = gPredsForPts.find(p => Number(p.game_number) === Number(g.game_number));
+      if (gp && gp.predicted_winner === g.winner) ptsGame += _ptsMW;
+    });
+    const pts = ptsSW + ptsSE + ptsGame;
+
+    const icon = exactOk ? '🎯' : winOk ? '✓' : '✗';
+    const iconBg = exactOk
+      ? 'rgba(29,185,84,0.15)' : winOk
+      ? 'rgba(245,158,11,0.15)' : 'rgba(232,66,42,0.1)';
+    const iconColor = exactOk
+      ? 'var(--green)' : winOk
+      ? 'var(--amber)' : 'var(--accent)';
+
+    const chips = [];
+    if (ptsSW > 0) chips.push(`<span style="color:var(--accent)">+${ptsSW} série</span>`);
+    if (ptsSE > 0) chips.push(`<span style="color:var(--green)">+${ptsSE} exact</span>`);
+    if (ptsGame > 0) chips.push(`<span style="color:var(--blue)">+${ptsGame} matchs</span>`);
+    if (pts === 0) chips.push(`<span style="color:var(--muted)">0 pt</span>`);
+
+    return `
+      <div class="profile-series-row">
+        <div class="profile-series-icon" style="background:${iconBg};color:${iconColor};font-size:18px">${icon}</div>
+        <div style="flex:1;min-width:0">
+          <div class="profile-series-teams">${s.team1} vs ${s.team2}</div>
+          <div class="profile-series-pred">
+            ${pred.predicted_series_winner} en ${pred.predicted_series_games}
+            <span style="color:var(--muted)"> · réel : ${s.series_winner} en ${s.series_games}</span>
+          </div>
+          <div class="profile-series-result">${chips.join(' · ')}</div>
+        </div>
+        <div class="profile-pts-badge" style="color:${pts>0?'var(--gold)':'var(--muted)'}">${pts>0?'+'+pts:'—'}</div>
+      </div>`;
+  }).join('');
+
+  // ── MVP preds — visibles uniquement si le tour est verrouillé (isMvpLocked)
+  const isViewingOwnProfile = playerId === state.currentPlayer?.id;
+  const actualMvp = String(state.settings['actual_mvp'] ?? '').trim().toLowerCase();
+
+  const mvpRowsArr = ['Premier tour','Demi-finales','Finales de conférence','Finales NBA'].map(round => {
+    const mp = mvpPreds.find(p => p.playoff_round === round);
+    const locked = isMvpLocked(round);
+    const visible = isViewingOwnProfile || locked;
+
+    if (!mp) {
+      // Pas de pronostic du tout pour ce tour
+      return `
+        <div class="profile-series-row">
+          <div class="profile-series-icon" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;font-size:16px">👑</div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--muted)">${round}</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:2px">Aucun pronostic</div>
+          </div>
+          ${locked ? '' : '<span class="badge badge-blue">Ouvert</span>'}
+        </div>`;
+    }
+
+    if (!visible) {
+      // Tour pas encore verrouillé et ce n'est pas notre propre profil → caché
+      return `
+        <div class="profile-series-row">
+          <div class="profile-series-icon" style="width:36px;height:36px;border-radius:50%;background:rgba(245,158,11,0.1);display:flex;align-items:center;justify-content:center;font-size:16px">🔒</div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--muted)">${round}</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:2px">Révélé au début du tour</div>
+          </div>
+          <span class="badge badge-amber">🔒</span>
+        </div>`;
+    }
+
+    const hit = actualMvp && mp.predicted_mvp?.toLowerCase() === actualMvp;
+    const candidate = MVP_CANDIDATES.find(c => c.name === mp.predicted_mvp);
+    return `
+      <div class="profile-series-row">
+        <div class="profile-series-icon" style="width:36px;height:36px;border-radius:50%;overflow:hidden;background:rgba(255,255,255,0.06)">
+          ${candidate
+            ? `<img src="${playerPhoto(candidate.espnId)}" style="width:100%;height:100%;object-fit:cover;object-position:top" onerror="this.style.display='none'">`
+            : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:16px">👑</div>`}
+        </div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600">${mp.predicted_mvp}</div>
+          <div style="font-size:11px;color:var(--muted)">${round}</div>
+        </div>
+        <span class="badge ${actualMvp?(hit?'badge-green':'badge-red'):'badge-gray'}">${actualMvp?(hit?'✓ Correct':'✗ Raté'):'En attente'}</span>
+      </div>`;
+  });
+
+  const mvpRows = mvpRowsArr.join('');
+
+  // ── Accuracy bars
+  function accBar(pct, color) {
+    if (pct === null) return '<div style="font-size:12px;color:var(--muted);padding:0 20px 12px">Pas encore de données</div>';
+    return `
+      <div style="padding:0 20px 14px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+          <span style="color:var(--muted)">${pct}%</span>
+        </div>
+        <div class="profile-accuracy-bar">
+          <div class="profile-accuracy-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+      </div>`;
+  }
+
+  const html = `
+    <div class="profile-overlay" id="profile-overlay" onclick="handleProfileOverlayClick(event)">
+      <div class="profile-sheet" onclick="event.stopPropagation()">
+
+        <div class="profile-hero">
+          <div class="profile-avatar" style="background:${player.avatar_color}22;color:${player.avatar_color}">${initials(player.name)}</div>
+          <div>
+            <div class="profile-name">${player.name}</div>
+            <div class="profile-sub">Rang #${rank} · ${totalPreds} série(s) pronostiquée(s)</div>
+          </div>
+          <div class="profile-close" onclick="closePlayerProfile()">✕</div>
+        </div>
+
+        <div class="profile-stats-grid">
+          <div class="profile-stat">
+            <div class="profile-stat-num" style="color:var(--gold)">${totalPts}</div>
+            <div class="profile-stat-lbl">Points</div>
+          </div>
+          <div class="profile-stat">
+            <div class="profile-stat-num" style="color:var(--accent)">${winTotal ? winOk + '/' + winTotal : '—'}</div>
+            <div class="profile-stat-lbl">Séries OK</div>
+          </div>
+          <div class="profile-stat">
+            <div class="profile-stat-num" style="color:var(--green)">${winTotal ? exactOk + '/' + winTotal : '—'}</div>
+            <div class="profile-stat-lbl">Exacts</div>
+          </div>
+          <div class="profile-stat">
+            <div class="profile-stat-num" style="color:var(--blue)">${gameTotal ? gameOk + '/' + gameTotal : '—'}</div>
+            <div class="profile-stat-lbl">Matchs</div>
+          </div>
+        </div>
+
+        <div class="profile-section-hd">Précision</div>
+        <div style="padding:0 20px 4px;font-size:11px;color:var(--muted);margin-bottom:4px">Vainqueur de série</div>
+        ${accBar(pctWin, 'var(--accent)')}
+        <div style="padding:0 20px 4px;font-size:11px;color:var(--muted);margin-bottom:4px">Score exact</div>
+        ${accBar(pctExact, 'var(--green)')}
+        <div style="padding:0 20px 4px;font-size:11px;color:var(--muted);margin-bottom:4px">Matchs individuels</div>
+        ${accBar(pctGame, 'var(--blue)')}
+
+        <div class="profile-section-hd">Séries terminées</div>
+        ${seriesFin.length ? seriesRows : '<div style="padding:12px 20px;font-size:13px;color:var(--muted)">Aucune série terminée.</div>'}
+
+        <div class="profile-section-hd">Pronostics MVP</div>
+        ${mvpRows}
+
+      </div>
+    </div>`;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function closePlayerProfile() {
+  const el = document.getElementById('profile-overlay');
+  if (el) el.remove();
+}
+
+function handleProfileOverlayClick(e) {
+  if (e.target.id === 'profile-overlay') closePlayerProfile();
+}
 
 // ══════════════════════════════════════════════════
 // MVP PICKER DATA & LOGIC
