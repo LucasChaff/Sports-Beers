@@ -1194,13 +1194,20 @@ async function promptMvpPrediction(round) {
 }
 
 function isMvpLocked(round) {
-  // on récupère les séries de ce round
   const seriesOfRound = state.series.filter(s => s.round === round);
 
-  // si aucune série → pas bloqué
+  // Si aucune série dans ce round, pas verrouillé
   if (!seriesOfRound.length) return false;
 
-  // on prend la plus tôt (important)
+  // Sécurité 1 : si au moins un score de match du round a été validé, on verrouille
+  const hasValidatedGame = seriesOfRound.some(s => {
+    const seriesGames = state.games[s.id] || [];
+    return seriesGames.some(g => g.status === 'finished');
+  });
+
+  if (hasValidatedGame) return true;
+
+  // Sécurité 2 : verrouillage normal au début théorique du round
   const earliestStart = seriesOfRound
     .map(s => s.start_time)
     .filter(Boolean)
@@ -1455,6 +1462,25 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
       if (newS) await create7Games(newS.id);
     }
   }
+}
+
+async function updateSeriesStartTime(seriesId, isoStartTime) {
+  skipNextSeriesRealtime += 1;
+
+  const { error } = await sb
+    .from('series')
+    .update({ start_time: isoStartTime || null })
+    .eq('id', seriesId);
+
+  if (error) {
+    console.error(error);
+    skipNextSeriesRealtime = Math.max(0, skipNextSeriesRealtime - 1);
+    return toast(`❌ Erreur mise à jour date série : ${error.message}`);
+  }
+
+  await loadSeries();
+  render();
+  toast('✅ Date de début mise à jour');
 }
 
 async function lockSeries(id) {
@@ -1885,7 +1911,12 @@ function renderPredCard(s) {
           </div>
         </div>
         `:`<div style="font-size:13px;color:var(--muted);margin-bottom:12px">Tu n'avais pas pronostiqué cette série.</div>`}
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Pronostics de tout le monde</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">
+          Pronostics de tout le monde
+        </div>
+        ${ap.length ? `<button class="btn btn-sm" onclick="openPredsTable('${s.id}')" style="font-size:11px;padding:5px 12px">📊 Tableau détaillé</button>` : ''}
+      </div>
       ${ap.map(pr=>{
         const pl=getPlayer(pr.player_id); if(!pl) return '';
         const ok=pr.predicted_series_winner===s.series_winner;
@@ -2582,7 +2613,24 @@ function renderAdminCard(s) {
       ${s.status==='finished'?`<span class="badge badge-green">Terminé</span>`:locked?`<span class="badge badge-amber">Verrouillé</span>`:`<span class="badge badge-blue">Ouvert</span>`}
     </div>
     ${s.status!=='finished'&&!locked?`<button class="btn btn-sm btn-block" style="margin-bottom:10px" onclick="lockSeries('${s.id}')">🔒 Verrouiller maintenant</button>`:''}
-
+    <div style="margin-bottom:10px">
+      <label>Début de la série</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input
+          id="series-start-${sid}"
+          type="datetime-local"
+          value="${s.start_time ? new Date(new Date(s.start_time).getTime() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''}"
+          style="margin-top:5px"
+        >
+        <button
+          class="btn btn-sm"
+          style="margin-top:5px"
+          onclick="doUpdateSeriesStartTime('${s.id}','${sid}')"
+        >
+          💾
+        </button>
+      </div>
+    </div>
     ${s.status==='finished'
       ? `<div style="font-size:13px;color:var(--muted);margin-bottom:8px">🏆 ${s.series_winner} en ${s.series_games} matchs</div>`
       : autoWinner
@@ -2668,6 +2716,13 @@ async function doAddGame(seriesId,sid,gameNumber) {
   const t=document.getElementById(`gtime-${sid}`);
   const st=t?.value?new Date(t.value).toISOString():null;
   await addGame(seriesId,gameNumber,st);
+}
+
+async function doUpdateSeriesStartTime(seriesId, sid) {
+  const input = document.getElementById(`series-start-${sid}`);
+  const value = input?.value || '';
+  const iso = value ? new Date(value).toISOString() : null;
+  await updateSeriesStartTime(seriesId, iso);
 }
 
 function renderAdminSettings() {
@@ -2824,8 +2879,8 @@ function bkMatchCard(series) {
   });
 
   const isFinished = series.status === 'finished';
-  const isLive = !isFinished && isLocked(series) && finishedGames.length > 0;
   const hasStarted = isLocked(series);
+  const isLive = !isFinished && hasStarted;
 
   const w = series.series_winner;
   const t1Win = isFinished && w === series.team1;
@@ -2838,8 +2893,6 @@ function bkMatchCard(series) {
     footer = `<div class="bk-match-footer">✓ Terminé</div>`;
   } else if (isLive) {
     footer = `<div class="bk-match-footer live-dot">En cours</div>`;
-  } else if (hasStarted) {
-    footer = `<div class="bk-match-footer">Verrouillé</div>`;
   } else if (series.start_time) {
     const d = new Date(series.start_time);
     const label = d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
@@ -2848,11 +2901,11 @@ function bkMatchCard(series) {
     footer = `<div class="bk-match-footer">À venir</div>`;
   }
 
-  const showScore = finishedGames.length > 0;
+  const showScore = isFinished || isLive;
   const s1 = showScore ? score1 : null;
   const s2 = showScore ? score2 : null;
 
-  return `<div class="bk-match ${isFinished?'finished':isLive?'live':''}">
+  return `<div class="bk-match ${isFinished ? 'finished' : isLive ? 'live' : ''}">
     ${bkTeamRow(series.team1, s1, t1Win, t1Lose)}
     ${bkTeamRow(series.team2, s2, t2Win, t2Lose)}
     ${footer}
