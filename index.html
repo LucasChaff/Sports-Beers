@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>NBA Playoffs 2026</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1057,6 +1060,9 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
 const SUPABASE_URL = 'https://xuqjqnjsjwzryqdnuqgl.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_38VfDqnFBj7E8EpAtW38nA_m7zAntx8';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const APP_VERSION = '2026-04-13-01';
+const SW_URL = `./sw.js?v=${APP_VERSION}`;
 
 // ── PUSH NOTIFICATIONS ──
 const VAPID_PUBLIC_KEY = 'BALx86LdkdnnPWBBZDTusT79ALqChv0VL8OdWJi0MYAh7s0spBG4VIEZvXctk71uELFoh9Uj1wi_PlzVDtBrO90';
@@ -2648,10 +2654,15 @@ function render() {
       </div>
 
       <div class="page active">${pageContent}</div>
-    </div>
-    <div id="toast"></div>
-  `;
-}
+      </div>
+
+      <div id="toast"></div>
+
+      <div style="position:fixed;bottom:6px;right:8px;font-size:10px;opacity:.55;z-index:9999">
+        v${APP_VERSION}
+      </div>
+        `;
+    }     
 
 function navTo(p){state.currentPage=p;render();}
 function switchPlayer() {
@@ -5651,7 +5662,7 @@ async function showPushBanner() {
   if (!state.currentPlayer) return;
   // Ne pas montrer si déjà abonné
   try {
-    const reg = await navigator.serviceWorker.register('/sw.js');
+    const reg = await navigator.serviceWorker.register(SW_URL);
     await navigator.serviceWorker.ready;
     const existing = await reg.pushManager.getSubscription();
     if (existing) { await _savePushSub(existing); return; }
@@ -5692,7 +5703,7 @@ async function registerPushNotifications() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   if (!state.currentPlayer) return;
   try {
-    const reg = await navigator.serviceWorker.register('/sw.js');
+    const reg = await navigator.serviceWorker.register(SW_URL);
     await navigator.serviceWorker.ready;
 
     // Déjà abonné → on enregistre quand même (idempotent)
@@ -5745,7 +5756,7 @@ async function _savePushSub(sub) {
 
 async function unregisterPushNotifications() {
   if (!('serviceWorker' in navigator)) return;
-  const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+  const reg = await navigator.serviceWorker.getRegistration(SW_URL);
   if (!reg) return;
   const sub = await reg.pushManager.getSubscription();
   if (sub) {
@@ -5765,7 +5776,7 @@ async function getPushStatus() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported';
   const perm = Notification.permission;
   if (perm === 'denied') return 'denied';
-  const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+  const reg = await navigator.serviceWorker.getRegistration(SW_URL);
   if (!reg) return 'off';
   const sub = await reg.pushManager.getSubscription();
   return sub ? 'on' : 'off';
