@@ -5715,10 +5715,25 @@ async function registerPushNotifications() {
 async function _savePushSub(sub) {
   if (!state.currentPlayer) return;
   const subJson = sub.toJSON();
-  await sb.from('push_subscriptions').upsert({
-    player_id: state.currentPlayer.id,
-    subscription: subJson,
-  }, { onConflict: 'player_id,subscription->endpoint' });
+  const endpoint = subJson.endpoint;
+  // Vérifier si cette subscription existe déjà pour ce joueur
+  const { data: existing } = await sb
+    .from('push_subscriptions')
+    .select('id')
+    .eq('player_id', state.currentPlayer.id)
+    .eq('subscription->>endpoint', endpoint)
+    .maybeSingle();
+  if (existing) {
+    // Mettre à jour les clés (peuvent changer)
+    await sb.from('push_subscriptions')
+      .update({ subscription: subJson })
+      .eq('id', existing.id);
+  } else {
+    await sb.from('push_subscriptions').insert({
+      player_id: state.currentPlayer.id,
+      subscription: subJson,
+    });
+  }
 }
 
 async function unregisterPushNotifications() {
