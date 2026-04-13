@@ -1073,7 +1073,8 @@ let state = {
   players:[], settings:{}, leaderboard: [],
   mvpPredictions: [],
   championPredictions: [],
-  doubleDowns: []
+  doubleDowns: [],
+  pushStatus: 'off' // 'on' | 'off' | 'denied' | 'unsupported' — mis à jour de façon async, jamais en plein render
 };
 
 // Temp state for in-progress predictions (survives re-renders)
@@ -1094,6 +1095,8 @@ async function init() {
   const saved = localStorage.getItem('nba26_player');
   if (saved) try { state.currentPlayer = JSON.parse(saved); } catch(e){}
   await loadAll();
+  // Charger le statut push UNE FOIS avant le premier render → plus de flash
+  state.pushStatus = await getPushStatus();
   subscribeRealtime();
   state.loading = false;
   initFinishedSeriesCache();
@@ -2612,7 +2615,7 @@ function render() {
             <span style="font-size:14px">📖</span>
           </button>
           <button class="header-player-btn" id="header-push-btn" onclick="togglePushFromHeader()" style="padding:6px 10px;margin-left:0" title="Notifications">
-            <span style="font-size:14px" id="header-push-icon">🔔</span>
+            <span style="font-size:14px;opacity:${state.pushStatus === 'denied' ? '0.4' : state.pushStatus === 'on' ? '1' : '0.6'}" id="header-push-icon">${state.pushStatus === 'on' ? '🔔' : '🔕'}</span>
           </button>
           <button class="header-player-btn" onclick="switchPlayer()">
             ${cp?.avatar_url
@@ -5625,9 +5628,12 @@ async function togglePushFromHeader() {
 }
 
 async function updateHeaderPushBtn() {
+  const status = await getPushStatus();
+  if (status === state.pushStatus) return; // rien n'a changé, pas de flash
+  state.pushStatus = status;
+  // Patch direct du DOM sans re-render complet
   const icon = document.getElementById('header-push-icon');
   if (!icon) return;
-  const status = await getPushStatus();
   if (status === 'on') {
     icon.textContent = '🔔';
     icon.style.opacity = '1';
@@ -5707,6 +5713,7 @@ async function registerPushNotifications() {
     await _savePushSub(sub);
     _updatePushBtn();
     toast('🔔 Notifications activées !');
+    loadPushSubsList(); // Rafraîchit la liste admin en temps réel
   } catch(e) {
     console.warn('Push registration failed:', e);
   }
@@ -5751,6 +5758,7 @@ async function unregisterPushNotifications() {
   }
   _updatePushBtn();
   toast('🔕 Notifications désactivées');
+  loadPushSubsList(); // Rafraîchit la liste admin en temps réel
 }
 
 async function getPushStatus() {
