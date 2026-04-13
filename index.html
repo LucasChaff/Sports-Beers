@@ -5546,7 +5546,7 @@ async function showPushBanner() {
   if (!state.currentPlayer) return;
   // Ne pas montrer si déjà abonné
   try {
-    const reg = await navigator.serviceWorker.register('/sw.js');
+    const reg = await navigator.serviceWorker.register('./sw.js');
     await navigator.serviceWorker.ready;
     const existing = await reg.pushManager.getSubscription();
     if (existing) { await _savePushSub(existing); return; }
@@ -5587,7 +5587,7 @@ async function registerPushNotifications() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   if (!state.currentPlayer) return;
   try {
-    const reg = await navigator.serviceWorker.register('/sw.js');
+    const reg = await navigator.serviceWorker.register('./sw.js');
     await navigator.serviceWorker.ready;
 
     // Déjà abonné → on enregistre quand même (idempotent)
@@ -5624,7 +5624,7 @@ async function _savePushSub(sub) {
 
 async function unregisterPushNotifications() {
   if (!('serviceWorker' in navigator)) return;
-  const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+  const reg = await navigator.serviceWorker.getRegistration('./sw.js');
   if (!reg) return;
   const sub = await reg.pushManager.getSubscription();
   if (sub) {
@@ -5643,7 +5643,7 @@ async function getPushStatus() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported';
   const perm = Notification.permission;
   if (perm === 'denied') return 'denied';
-  const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+  const reg = await navigator.serviceWorker.getRegistration('./sw.js');
   if (!reg) return 'off';
   const sub = await reg.pushManager.getSubscription();
   return sub ? 'on' : 'off';
