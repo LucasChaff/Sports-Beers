@@ -4787,7 +4787,7 @@ function bkMatchCard(series) {
 }
 
 function getHomeTeam(series, gameNumber){
-  const format = [2,2,1,1,2,1,2]; // format NBA
+  const format = [1,1,2,2,1,2,1]; // format NBA
   const homeIndex = format[gameNumber - 1];
 
   return homeIndex === 1 ? series.team1 : series.team2;
