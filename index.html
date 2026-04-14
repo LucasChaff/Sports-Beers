@@ -1197,21 +1197,16 @@ function myDoubleDown(seriesId) {
   if (!state.currentPlayer) return null;
   return getDoubleDown(state.currentPlayer.id, seriesId);
 }
-// Returns the double down the current player used for a given round (any series)
+// Returns the double down the current player used anywhere in the tournament
 function myDoubleDownForRound(round) {
+  // kept for compatibility — now checks the whole tournament
   if (!state.currentPlayer) return null;
-  const seriesOfRound = state.series.filter(s => s.round === round);
-  for (const s of seriesOfRound) {
-    const dd = getDoubleDown(state.currentPlayer.id, s.id);
-    if (dd) return dd;
-  }
-  return null;
+  return state.doubleDowns.find(d => d.player_id === state.currentPlayer.id) || null;
 }
-// Has the current player already used their double down for this round (on a different series)?
+// Has the current player already used their (unique) double down on a different series?
 function doubleDownUsedElsewhere(round, seriesId) {
   if (!state.currentPlayer) return false;
-  const seriesOfRound = state.series.filter(s => s.round === round && s.id !== seriesId);
-  return seriesOfRound.some(s => !!getDoubleDown(state.currentPlayer.id, s.id));
+  return state.doubleDowns.some(d => d.player_id === state.currentPlayer.id && d.series_id !== seriesId);
 }
 
 async function toggleDoubleDown(seriesId) {
@@ -1230,7 +1225,7 @@ async function toggleDoubleDown(seriesId) {
   } else {
     // Check quota: only 1 per round
     if (doubleDownUsedElsewhere(s.round, seriesId)) {
-      toast('⚠️ Tu as déjà utilisé ton bonus risqué pour ce round !');
+      toast('⚠️ Tu as déjà utilisé ton bonus risqué pour ce tournoi !');
       return;
     }
     const { error } = await sb.from('double_down').insert({
@@ -3164,10 +3159,13 @@ function renderLeaderboard() {
 // ── PREDICTIONS ──
 function renderPredictions() {
   if(!state.series.length) return `<div class="empty"><span class="empty-icon">📋</span>Aucune série disponible.<br>L'admin doit les ajouter.</div>`;
-  const rounds=[...new Set(state.series.map(s=>s.round))];
-  return rounds.map(r=>{
-    const ss=state.series.filter(s=>s.round===r);
-    return `<div class="section-label">${r}</div>`+ss.map(s=>renderPredCard(s)).join('');
+  const ROUND_ORDER = ['Premier tour','Demi-finales','Finales de conférence','Finales NBA'];
+  const activeSeries = state.series.filter(s => s.status !== 'finished');
+  if (!activeSeries.length) return `<div class="empty"><span class="empty-icon">✅</span>Toutes les séries sont terminées.<br>Consulte l'onglet Séries pour les résultats.</div>`;
+  const rounds = [...new Set(activeSeries.map(s => s.round))].sort((a,b) => ROUND_ORDER.indexOf(a) - ROUND_ORDER.indexOf(b));
+  return rounds.map(r => {
+    const ss = activeSeries.filter(s => s.round === r);
+    return `<div class="section-label">${r}</div>` + ss.map(s => renderPredCard(s)).join('');
   }).join('');
 }
 
@@ -3383,7 +3381,7 @@ function renderPredCard(s) {
           if (usedElsewhere && !isDD) return `
             <div class="dd-info-box">
               <span>🎲</span>
-              <span>Bonus risqué déjà utilisé sur une autre série de ce round.</span>
+              <span>Bonus risqué déjà utilisé sur ce tournoi.</span>
             </div>`;
           return `
             <button class="dd-btn ${isDD ? 'active' : ''}" onclick="toggleDoubleDown('${s.id}')">
@@ -3392,7 +3390,7 @@ function renderPredCard(s) {
                 : '🎲 Activer le bonus risqué (×2 pts si correct)'}
             </button>
             <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:5px">
-              ${isDD ? 'Tes points sur cette série seront doublés si tu trouves le bon vainqueur.' : '1 seul bonus par round · Annulable avant le début de la série'}
+              ${isDD ? 'Tes points sur cette série seront doublés si tu trouves le bon vainqueur.' : '1 seul bonus par tournoi · Annulable avant le début de la série'}
             </div>`;
         })()}
 
@@ -3425,30 +3423,62 @@ function renderPredCard(s) {
   `;
 }
 
+// État accordéon pour "Mes picks"
+const myPicksOpen = {};
+
 function renderMyPicks() {
   if (!state.currentPlayer) return '';
 
   const myPreds = state.predictions.filter(p => p.player_id === state.currentPlayer.id);
+  const mvpRounds = ['Premier tour','Demi-finales','Finales de conférence','Finales NBA'];
+  const ROUND_ORDER = ['Premier tour','Demi-finales','Finales de conférence','Finales NBA'];
 
-  const done = [];
-  const todo = [];
-  const mvpRounds = [
-  'Premier tour',
-  'Demi-finales',
-  'Finales de conférence',
-  'Finales NBA'
-];
-
-  state.series.forEach(s => {
-    const p = myPreds.find(pr => pr.series_id === s.id);
-    const locked = isLockedSeriesForMyPick(s);
-
-    if (p) {
-      done.push({ series: s, pred: p });
-    } else if (!locked) {
-      todo.push(s);
-    }
+  const todo = state.series.filter(s => {
+    const hasPred = myPreds.some(pr => pr.series_id === s.id);
+    return !hasPred && !isLockedSeriesForMyPick(s);
   });
+
+  const doneByRound = {};
+  state.series.forEach(s => {
+    const pred = myPreds.find(pr => pr.series_id === s.id);
+    if (!pred) return;
+    if (!doneByRound[s.round]) doneByRound[s.round] = [];
+    doneByRound[s.round].push({ series: s, pred });
+  });
+
+  const roundsHTML = ROUND_ORDER
+    .filter(r => doneByRound[r]?.length)
+    .map(r => {
+      const items = doneByRound[r];
+      const safeId = 'mypicks_' + r.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
+      if (myPicksOpen[r] === undefined) {
+        myPicksOpen[r] = items.some(({series}) => series.status !== 'finished');
+      }
+      const isOpen = myPicksOpen[r];
+      const finishedCount = items.filter(({series}) => series.status === 'finished').length;
+      return `
+        <div style="margin:0 12px 6px">
+          <button onclick="toggleMyPicksRound('${r}')"
+            style="width:100%;display:flex;align-items:center;justify-content:space-between;
+                   background:var(--card);border:1px solid var(--border2);border-radius:16px;
+                   padding:14px 16px;cursor:pointer;transition:border-color .2s,background .2s;text-align:left"
+            onmouseover="this.style.background='var(--card2)';this.style.borderColor='rgba(255,255,255,0.2)'"
+            onmouseout="this.style.background='var(--card)';this.style.borderColor='var(--border2)'">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:16px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text)">${r}</span>
+              <span style="font-size:11px;color:var(--muted)">${finishedCount}/${items.length} terminée(s)</span>
+            </div>
+            <span style="font-size:16px;color:var(--muted);display:inline-block;transform:rotate(${isOpen?'180':'0'}deg);transition:transform .3s"
+                  id="${safeId}_arrow">▼</span>
+          </button>
+          <div id="${safeId}_body" style="${isOpen ? '' : 'display:none'}">
+            <div class="card" style="margin-top:4px">
+              ${items.map(({series, pred}) => renderMyPickCard(series, pred)).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
 
   return `
     <div class="section-label">🏆 Champion &amp; 👑 MVP</div>
@@ -3460,33 +3490,25 @@ function renderMyPicks() {
         const actualChampion = String(state.settings['actual_champion'] ?? '').trim();
         const champHit = actualChampion && champTeam.toLowerCase() === actualChampion.toLowerCase();
         const champLogo = champTeam ? teamLogo(champTeam) : null;
-
         const mvpPred = myMvpPred(round);
         const mvpName = mvpPred?.predicted_mvp || '';
         const mvpCandidate = MVP_CANDIDATES.find(c => c.name === mvpName);
         const mvpLocked = isMvpLocked(round);
         const actualMvpSetting = String(state.settings['actual_mvp'] ?? '').trim();
         const mvpHit = actualMvpSetting && mvpName.toLowerCase() === actualMvpSetting.toLowerCase();
-
-        // Round label court
         const roundShort = { 'Premier tour':'R1', 'Demi-finales':'1/2', 'Finales de conférence':'Conf.', 'Finales NBA':'Finale' }[round] || round;
-
-        // Pill champion
         const champContent = champTeam
           ? (champLogo ? `<img src="${champLogo}" style="width:14px;height:14px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'"> <span style="max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${champTeam}</span>` : `🏀 ${champTeam}`)
           : '🏆 <span style="color:var(--muted)">Champion ?</span>';
         const champStyle = champTeam
           ? (actualChampion ? (champHit ? 'background:rgba(29,185,84,0.12);border-color:rgba(29,185,84,0.3);color:var(--green)' : 'background:rgba(232,66,42,0.1);border-color:rgba(232,66,42,0.25);color:#ff8068') : 'background:rgba(245,197,24,0.1);border-color:rgba(245,197,24,0.25);color:var(--gold)')
           : 'background:rgba(255,255,255,0.04);border-color:var(--border2);color:var(--dim)';
-
-        // Pill MVP
         const mvpContent = mvpName
           ? (mvpCandidate ? `<img src="${playerPhoto(mvpCandidate.espnId)}" style="width:14px;height:14px;border-radius:50%;object-fit:cover;object-position:top;flex-shrink:0" onerror="this.style.display='none'"> <span style="max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${mvpCandidate.short}</span>` : `👑 <span style="max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${mvpName}</span>`)
           : '👑 <span style="color:var(--muted)">MVP ?</span>';
         const mvpStyle = mvpName
           ? (actualMvpSetting ? (mvpHit ? 'background:rgba(29,185,84,0.12);border-color:rgba(29,185,84,0.3);color:var(--green)' : 'background:rgba(232,66,42,0.1);border-color:rgba(232,66,42,0.25);color:#ff8068') : 'background:rgba(61,127,255,0.1);border-color:rgba(61,127,255,0.25);color:#9ec4ff')
           : 'background:rgba(255,255,255,0.04);border-color:var(--border2);color:var(--dim)';
-
         return `
           <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
             <span style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;color:var(--muted);letter-spacing:0.06em;min-width:36px;text-transform:uppercase">${roundShort}</span>
@@ -3497,21 +3519,11 @@ function renderMyPicks() {
         `;
       }).join('')}
     </div>
-    <div class="section-label">Mes pronostics</div>
 
-    ${done.length ? `
-      <div class="card">
-        ${done.map(({ series, pred }) => renderMyPickCard(series, pred)).join('')}
-      </div>
-    ` : `
-      <div class="empty">
-        <span class="empty-icon">🧠</span>
-        Aucun pronostic pour l’instant
-      </div>
-    `}
+    <div class="section-label">Mes pronostics</div>
+    ${roundsHTML || `<div class="empty"><span class="empty-icon">🧠</span>Aucun pronostic pour l'instant</div>`}
 
     <div class="section-label">À compléter</div>
-
     ${todo.length ? `
       <div class="card">
         ${todo.map(s => `
@@ -3529,29 +3541,42 @@ function renderMyPicks() {
           </div>
         `).join('')}
       </div>
-    ` : `
-      <div class="empty">
-        <span class="empty-icon">✅</span>
-        Tout est complété
-      </div>
-    `}
+    ` : `<div class="empty"><span class="empty-icon">✅</span>Tout est complété</div>`}
   `;
 }
 
+function toggleMyPicksRound(round) {
+  myPicksOpen[round] = !myPicksOpen[round];
+  const safeId = 'mypicks_' + round.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
+  const body = document.getElementById(safeId + '_body');
+  const arrow = document.getElementById(safeId + '_arrow');
+  if (body) body.style.display = myPicksOpen[round] ? '' : 'none';
+  if (arrow) arrow.style.transform = myPicksOpen[round] ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+
 function renderMyPickCard(s, p) {
-  const games = state.games[s.id] || [];
+  const allGames = state.games[s.id] || [];
   const isFinished = s.status === 'finished';
   const isLocked = s.status === 'locked' || isLockedSeriesForMyPick(s);
+
+  // Ne montrer que les matchs pertinents :
+  // - Si la série est terminée : uniquement les matchs joués
+  // - Sinon : matchs joués + prochain match à venir (premier non terminé)
+  let games;
+  if (isFinished) {
+    games = allGames.filter(g => g.status === 'finished');
+  } else {
+    const played = allGames.filter(g => g.status === 'finished');
+    const nextGame = allGames.find(g => g.status !== 'finished');
+    games = nextGame ? [...played, nextGame] : played;
+  }
+  games = games.slice().sort((a, b) => a.game_number - b.game_number);
 
   const roundPoints = getRoundPoints(s.round);
   const ptsMW = roundPoints.match;
   const ptsSW = roundPoints.series;
   const ptsSE = roundPoints.exact;
-  const ptsMvpR1 = Number(state.settings['points_mvp_premier_tour'] ?? 1);
-  const ptsMvpSF = Number(state.settings['points_mvp_demi_finales'] ?? 2);
-  const ptsMvpCF = Number(state.settings['points_mvp_finales_conference'] ?? 4);
-  const ptsMvpFN = Number(state.settings['points_mvp_finales_nba'] ?? 8);
-  const actualMvp = String(state.settings['actual_mvp'] ?? '').trim();
 
   let pointsGames = 0;
   let pointsSeriesWinner = 0;
@@ -3559,12 +3584,10 @@ function renderMyPickCard(s, p) {
 
   const gamePreds = p.game_predictions || [];
 
-  games.forEach(g => {
+  allGames.forEach(g => {
     if (g.status !== 'finished' || !g.winner) return;
     const gp = gamePreds.find(x => Number(x.game_number) === Number(g.game_number));
-    if (gp && gp.predicted_winner === g.winner) {
-      pointsGames += ptsMW;
-    }
+    if (gp && gp.predicted_winner === g.winner) pointsGames += ptsMW;
   });
 
   if (isFinished && s.series_winner) {
@@ -3576,24 +3599,21 @@ function renderMyPickCard(s, p) {
     }
   }
 
-  const totalPoints = pointsGames + pointsSeriesWinner + pointsSeriesExact;
-
-  // Double down: double points if active and series winner was correct
   const hasDD = !!myDoubleDown(s.id);
-  const ddActive = hasDD && pointsSeriesWinner > 0; // only counts if series winner was right
+  const ddActive = hasDD && pointsSeriesWinner > 0;
   const displayGames = ddActive ? pointsGames * 2 : pointsGames;
   const displaySW = ddActive ? pointsSeriesWinner * 2 : pointsSeriesWinner;
   const displaySE = ddActive ? pointsSeriesExact * 2 : pointsSeriesExact;
   const displayTotal = displayGames + displaySW + displaySE;
 
   let statusBadge = '';
-  if (isFinished) {
-    statusBadge = `<span class="badge badge-green">Terminé</span>`;
-  } else if (isLocked) {
-    statusBadge = `<span class="badge badge-amber">Verrouillé</span>`;
-  } else {
-    statusBadge = `<span class="badge badge-blue">Ouvert</span>`;
-  }
+  if (isFinished) statusBadge = `<span class="badge badge-green">Terminé</span>`;
+  else if (isLocked) statusBadge = `<span class="badge badge-amber">Verrouillé</span>`;
+  else statusBadge = `<span class="badge badge-blue">Ouvert</span>`;
+
+  // Résultat réel vs pronostic (série terminée)
+  const predWinOk = isFinished && p.predicted_series_winner === s.series_winner;
+  const predExactOk = predWinOk && Number(p.predicted_series_games) === Number(s.series_games);
 
   return `
     <div style="padding:12px 0;border-bottom:1px solid var(--border)">
@@ -3609,31 +3629,45 @@ function renderMyPickCard(s, p) {
         ${statusBadge}
       </div>
 
-      <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">
-          Mon pronostic
-        </div>
-        <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px">
-          🧠 ${p.predicted_series_winner} en ${p.predicted_series_games}
-          ${hasDD ? `<span class="dd-badge">🎲 ×2</span>` : ''}
-        </div>
-
-        ${isFinished ? `
-          <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
-            <span class="pts-chip ${displayGames > 0 ? 'hit' : ''}">🏀 Matchs : +${displayGames}</span>
-            <span class="pts-chip ${displaySW > 0 ? 'hit' : ''}">📊 Série : +${displaySW}</span>
-            <span class="pts-chip ${displaySE > 0 ? 'hit' : ''}">🎯 Exact : +${displaySE}</span>
-            ${ddActive ? `<span class="pts-chip hit" style="background:rgba(245,197,24,0.15);border-color:rgba(245,197,24,0.35);color:var(--gold)">🎲 doublé !</span>` : ''}
+      ${isFinished ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:12px;padding:10px 12px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">Mon prono</div>
+            <div style="font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px">
+              🧠 ${p.predicted_series_winner} en ${p.predicted_series_games}
+              ${hasDD ? `<span class="dd-badge" style="font-size:9px">🎲</span>` : ''}
+            </div>
           </div>
-        ` : hasDD && !isFinished ? `
-          <div class="dd-info-box" style="margin-top:8px">
-            <span>🎲</span><span>Bonus risqué activé — points doublés si tu trouves le bon vainqueur</span>
+          <div style="background:rgba(29,185,84,0.07);border:1px solid rgba(29,185,84,0.2);border-radius:12px;padding:10px 12px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">Résultat réel</div>
+            <div style="font-size:14px;font-weight:700;color:var(--green)">
+              🏆 ${s.series_winner} en ${s.series_games}
+            </div>
           </div>
-        ` : ''}
-      </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          <span class="pts-chip ${displayGames > 0 ? 'hit' : ''}">🏀 Matchs : +${displayGames}</span>
+          <span class="pts-chip ${displaySW > 0 ? 'hit' : ''}">📊 Série : ${predWinOk ? '+' + displaySW + ' ✓' : '✗'}</span>
+          <span class="pts-chip ${displaySE > 0 ? 'hit' : ''}">🎯 Exact : ${predExactOk ? '+' + displaySE + ' ✓' : '✗'}</span>
+          ${ddActive ? `<span class="pts-chip hit" style="background:rgba(245,197,24,0.15);border-color:rgba(245,197,24,0.35);color:var(--gold)">🎲 doublé !</span>` : ''}
+        </div>
+      ` : `
+        <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Mon pronostic</div>
+          <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px">
+            🧠 ${p.predicted_series_winner} en ${p.predicted_series_games}
+            ${hasDD ? `<span class="dd-badge">🎲 ×2</span>` : ''}
+          </div>
+          ${hasDD ? `
+            <div class="dd-info-box" style="margin-top:8px">
+              <span>🎲</span><span>Bonus risqué activé — points doublés si tu trouves le bon vainqueur</span>
+            </div>
+          ` : ''}
+        </div>
+      `}
 
       ${games.length ? `
-        <div style="margin-top:8px">
+        <div style="margin-top:4px">
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">
             Mes matchs
           </div>
@@ -3641,18 +3675,14 @@ function renderMyPickCard(s, p) {
             const gp = gamePreds.find(x => Number(x.game_number) === Number(g.game_number));
             const predicted = gp?.predicted_winner || '—';
             const correct = g.status === 'finished' && gp && gp.predicted_winner === g.winner;
-
             return `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
-                <span style="color:var(--muted)">Match ${g.game_number}</span>
-                <div style="display:flex;align-items:center;gap:6px">
-                  <span>${predicted}</span>
-                  ${
-                    g.status === 'finished'
-                      ? `<span class="badge ${correct ? 'badge-green' : 'badge-gray'}">${correct ? '✓' : '✗'}</span>`
-                      : `<span class="badge badge-gray">à venir</span>`
-                  }
-                </div>
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
+                <span style="color:var(--muted);min-width:52px">M${g.game_number}</span>
+                <span style="flex:1;font-weight:600">${predicted}</span>
+                ${g.status === 'finished'
+                  ? `<span style="font-size:11px;color:var(--muted)">${g.winner}</span>
+                     <span class="badge ${correct ? 'badge-green' : 'badge-red'}">${correct ? '✓' : '✗'}</span>`
+                  : `<span class="badge badge-gray">à venir</span>`}
               </div>
             `;
           }).join('')}
@@ -3662,7 +3692,7 @@ function renderMyPickCard(s, p) {
       ${isFinished ? `
         <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:12px;color:var(--muted)">Total gagné sur cette série</span>
-          <span style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;color:${ddActive ? 'var(--gold)' : 'var(--green)'}">
+          <span style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;color:${ddActive ? 'var(--gold)' : displayTotal > 0 ? 'var(--green)' : 'var(--muted)'}">
             +${displayTotal}${ddActive ? ' 🎲' : ''}
           </span>
         </div>
@@ -4438,7 +4468,7 @@ function renderAdminSeries() {
       <button class="btn btn-primary btn-block" onclick="doAddSeries()">Ajouter la série</button>
     </div>
     <div class="section-label">Séries en cours</div>
-    ${!state.series.length?`<div class="empty">Aucune série</div>`:state.series.map(s=>renderAdminCard(s)).join('')}`;
+    ${!state.series.length?`<div class="empty">Aucune série</div>`:[...state.series].sort((a,b)=>{const O=['Premier tour','Demi-finales','Finales de conférence','Finales NBA'];return O.indexOf(a.round)-O.indexOf(b.round);}).map(s=>renderAdminCard(s)).join('')}`;
 }
 
 function renderAdminSettings() {
@@ -5305,7 +5335,7 @@ function renderRulesHTML() {
         <div class="rules-dd-title">🎲 Le Bonus Risqué</div>
         <div class="rules-dd-row">
           <span>✦</span>
-          <span><strong style="color:var(--text)">1 seul bonus par round</strong>, à placer sur la série de ton choix.</span>
+          <span><strong style="color:var(--text)">1 seul bonus pour tout le tournoi</strong>, à placer sur la série de ton choix.</span>
         </div>
         <div class="rules-dd-row">
           <span>✦</span>
