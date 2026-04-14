@@ -373,28 +373,33 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
 
   left:12px;
   right:12px;
+  width:auto;
+  max-width:100%; /* 🔥 important */
+
+  margin:0;
   transform:none;
 
-  width:auto;
-  max-width:440px;
-  margin:0 auto;
-
   z-index:290;
-
-  background:linear-gradient(135deg,rgba(20,20,35,0.97),rgba(12,12,20,0.97));
-  border:1px solid rgba(61,127,255,0.35);
-  border-radius:16px;
-  padding:12px 14px;
 
   display:flex;
   align-items:center;
   gap:10px;
 
+  padding:12px 14px;
+  border-radius:16px;
+
+  background:linear-gradient(135deg,rgba(20,20,35,0.97),rgba(12,12,20,0.97));
+  border:1px solid rgba(61,127,255,0.35);
   box-shadow:0 8px 32px rgba(0,0,0,0.5);
-  animation:bannerIn .35s cubic-bezier(.34,1.56,.64,1) forwards;
+
+  overflow:hidden; /* 🔥 empêche tout débordement */
+
+  flex-wrap:wrap;
 }
 #push-banner-icon{font-size:22px;flex-shrink:0}
 #push-banner-text{
+  flex:1;
+  min-width:0;
   flex:1;
   min-width:0; /* 🔥 CRUCIAL pour éviter overflow */
 }
@@ -403,6 +408,7 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
   background:var(--blue);border:none;border-radius:10px;
   color:#fff;font-size:12px;font-weight:700;padding:8px 14px;
   cursor:pointer;white-space:nowrap;flex-shrink:0;
+  white-space:normal;
 }
 #push-banner-close{
   font-size:14px;color:var(--muted);cursor:pointer;
