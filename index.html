@@ -3767,7 +3767,11 @@ function renderGamePredRow(g, s, mp, pid) {
     </div>`;
   } else {
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Match ${g.game_number} · ${fmtDate(g.start_time)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${(() => {
+  const home = getHomeTeam(s, g.game_number);
+  const away = home === s.team1 ? s.team2 : s.team1;
+  return `Match ${g.game_number} • ${away} @ ${home}`;
+})()}</div>
       <div class="team-picker" id="${gid}">
         <button class="team-btn ${myGWinner===s.team1?'selected':''}" onclick="pickGameWinner('${s.id}','${gid}',${g.game_number},'${s.team1}')">${s.team1}</button>
         <button class="team-btn ${myGWinner===s.team2?'selected':''}" onclick="pickGameWinner('${s.id}','${gid}',${g.game_number},'${s.team2}')">${s.team2}</button>
