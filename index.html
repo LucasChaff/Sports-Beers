@@ -3341,7 +3341,11 @@ function renderPredCard(s) {
                   const gp = (mp.game_predictions || []).find(p => Number(p.game_number) === Number(g.game_number));
                   return `
                     <div class="game-row">
-                      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
+                      <span style="color:var(--muted);min-width:62px;font-size:12px">${(() => {
+  const home = getHomeTeam(s, g.game_number);
+  const away = home === s.team1 ? s.team2 : s.team1;
+  return `Match ${g.game_number} • ${away} @ ${home}`;
+})()}</span>
                       <span style="flex:1;font-size:12px;color:var(--muted)">${fmtDate(g.start_time)}</span>
                       <span class="badge badge-gray">${gp?.predicted_winner || '—'}</span>
                     </div>
@@ -3743,13 +3747,21 @@ function renderGamePredRow(g, s, mp, pid) {
   if(g.status==='finished') {
     const ok=myGWinner===g.winner;
     return `<div class="game-row">
-      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
+      <span style="color:var(--muted);min-width:62px;font-size:12px">${(() => {
+  const home = getHomeTeam(s, g.game_number);
+  const away = home === s.team1 ? s.team2 : s.team1;
+  return `Match ${g.game_number} • ${away} @ ${home}`;
+})()}</span>
       <span style="flex:1;font-size:12px;font-weight:600">🏆 ${g.winner}</span>
       ${myGWinner?`<span class="badge ${ok?'badge-green':'badge-gray'}">${myGWinner} ${ok?'✓':'✗'}</span>`:'<span style="color:var(--muted);font-size:12px">—</span>'}
     </div>`;
   } else if(isGameLocked(g)) {
     return `<div class="game-row">
-      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
+      <span style="color:var(--muted);min-width:62px;font-size:12px">${(() => {
+  const home = getHomeTeam(s, g.game_number);
+  const away = home === s.team1 ? s.team2 : s.team1;
+  return `Match ${g.game_number} • ${away} @ ${home}`;
+})()}</span>
       <span style="flex:1;font-size:11px;color:var(--muted)">${fmtDate(g.start_time)}</span>
       ${myGWinner?`<span class="badge badge-amber">🔒 ${myGWinner}</span>`:`<span class="badge badge-gray">—</span>`}
     </div>`;
@@ -4106,7 +4118,11 @@ function renderSeriesPageInner() {
         <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
           ${gamesToShow.map(g => `
             <div class="game-row">
-              <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
+              <span style="min-width:62px;font-size:12px;color:var(--muted)">${(() => {
+  const home = getHomeTeam(s, g.game_number);
+  const away = home === s.team1 ? s.team2 : s.team1;
+  return `Match ${g.game_number} • ${away} @ ${home}`;
+})()}</span>
               <span style="flex:1;font-size:12px;color:var(--muted)">${g.start_time ? fmtDate(g.start_time) : ''}</span>
               ${g.status === 'finished'
                 ? `<span class="badge badge-green">🏆 ${g.winner}</span>`
@@ -4325,13 +4341,21 @@ function renderAdminCard(s) {
       const unreachable = s.status !== 'finished' && g.status !== 'finished' && (w1b >= 4 || w2b >= 4);
 
       if (unreachable) return `<div class="game-row" style="opacity:0.3">
-        <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
+        <span style="min-width:62px;font-size:12px;color:var(--muted)">${(() => {
+  const home = getHomeTeam(s, g.game_number);
+  const away = home === s.team1 ? s.team2 : s.team1;
+  return `Match ${g.game_number} • ${away} @ ${home}`;
+})()}</span>
         <span style="flex:1;font-size:12px;color:var(--dim)">Non joué</span>
       </div>`;
 
       const gidSafe = g.id.replace(/-/g,'_');
       return `<div class="game-row">
-        <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
+        <span style="min-width:62px;font-size:12px;color:var(--muted)">${(() => {
+  const home = getHomeTeam(s, g.game_number);
+  const away = home === s.team1 ? s.team2 : s.team1;
+  return `Match ${g.game_number} • ${away} @ ${home}`;
+})()}</span>
         <span style="flex:1;font-size:11px;color:var(--muted)">${fmtDate(g.start_time)}</span>
         ${g.status==='finished'
           ? `<div style="display:flex;align-items:center;gap:6px">
@@ -4756,6 +4780,13 @@ function bkMatchCard(series) {
     ${bkTeamRow(series.team2, s2, t2Win, t2Lose)}
     ${footer}
   </div>`;
+}
+
+function getHomeTeam(series, gameNumber){
+  const format = [1,1,2,2,1,2,1]; // format NBA
+  const homeIndex = format[gameNumber - 1];
+
+  return homeIndex === 1 ? series.team1 : series.team2;
 }
 
 function getSeriesByRoundConf(round, conf) {
