@@ -1864,6 +1864,11 @@ function isLockedSeriesForMyPick(s) {
   return false;
 }
 
+function isVisibleSeries(s) {
+  return s.team1 !== 'À déterminer' && s.team2 !== 'À déterminer';
+}
+
+
 // ══════════════════════════════════════════════════
 // CHAMPION PREDICTION LOGIC
 // ══════════════════════════════════════════════════
@@ -3184,14 +3189,25 @@ function renderLeaderboard() {
 
 // ── PREDICTIONS ──
 function renderPredictions() {
-  if(!state.series.length) return `<div class="empty"><span class="empty-icon">📋</span>Aucune série disponible.<br>L'admin doit les ajouter.</div>`;
+  const visibleSeries = state.series.filter(isVisibleSeries);
+  
+  if(!visibleSeries.length) {
+  return `<div class="empty"><span class="empty-icon">📋</span>Aucune série disponible.<br>L'admin doit les ajouter.</div>`;
+  }
+  
   const ROUND_ORDER = ['Premier tour','Demi-finales','Finales de conférence','Finales NBA'];
-  const activeSeries = state.series.filter(s => s.status !== 'finished');
-  if (!activeSeries.length) return `<div class="empty"><span class="empty-icon">✅</span>Toutes les séries sont terminées.<br>Consulte l'onglet Séries pour les résultats.</div>`;
-  const rounds = [...new Set(activeSeries.map(s => s.round))].sort((a,b) => ROUND_ORDER.indexOf(a) - ROUND_ORDER.indexOf(b));
+  const activeSeries = visibleSeries.filter(s => s.status !== 'finished');
+  
+  if (!activeSeries.length) {
+  return `<div class="empty"><span class="empty-icon">✅</span>Toutes les séries sont terminées.<br>Consulte l'onglet Séries pour les résultats.</div>`;
+  }
+  
+  const rounds = [...new Set(activeSeries.map(s => s.round))]
+  .sort((a,b) => ROUND_ORDER.indexOf(a) - ROUND_ORDER.indexOf(b));
+  
   return rounds.map(r => {
-    const ss = activeSeries.filter(s => s.round === r);
-    return `<div class="section-label">${r}</div>` + ss.map(s => renderPredCard(s)).join('');
+  const ss = activeSeries.filter(s => s.round === r);
+  return `<div class="section-label">${r}</div>` + ss.map(s => renderPredCard(s)).join('');
   }).join('');
 }
 
