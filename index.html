@@ -368,47 +368,21 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
 
 /* ── PUSH BANNER ── */
 #push-banner{
-  position:fixed;
-  bottom:72px;
-
-  left:12px;
-  right:12px;
-  width:auto;
-  max-width:100%; /* 🔥 important */
-
-  margin:0;
-  transform:none;
-
-  z-index:290;
-
-  display:flex;
-  align-items:center;
-  gap:10px;
-
-  padding:12px 14px;
-  border-radius:16px;
-
+  position:fixed;bottom:72px;left:50%;transform:translateX(-50%);
+  z-index:290;width:calc(100% - 24px);max-width:440px;
   background:linear-gradient(135deg,rgba(20,20,35,0.97),rgba(12,12,20,0.97));
-  border:1px solid rgba(61,127,255,0.35);
+  border:1px solid rgba(61,127,255,0.35);border-radius:16px;
+  padding:12px 14px;display:flex;align-items:center;gap:10px;
   box-shadow:0 8px 32px rgba(0,0,0,0.5);
-
-  overflow:hidden; /* 🔥 empêche tout débordement */
-
-  flex-wrap:wrap;
+  animation:bannerIn .35s cubic-bezier(.34,1.56,.64,1) forwards;
 }
 #push-banner-icon{font-size:22px;flex-shrink:0}
-#push-banner-text{
-  flex:1;
-  min-width:0;
-  flex:1;
-  min-width:0; /* 🔥 CRUCIAL pour éviter overflow */
-}
+#push-banner-text{flex:1;font-size:13px;font-weight:600;line-height:1.3}
 #push-banner-sub{font-size:11px;color:var(--muted);font-weight:400}
 #push-banner-btn{
   background:var(--blue);border:none;border-radius:10px;
   color:#fff;font-size:12px;font-weight:700;padding:8px 14px;
   cursor:pointer;white-space:nowrap;flex-shrink:0;
-  white-space:normal;
 }
 #push-banner-close{
   font-size:14px;color:var(--muted);cursor:pointer;
@@ -1864,11 +1838,6 @@ function isLockedSeriesForMyPick(s) {
   return false;
 }
 
-function isVisibleSeries(s) {
-  return s.team1 !== 'À déterminer' && s.team2 !== 'À déterminer';
-}
-
-
 // ══════════════════════════════════════════════════
 // CHAMPION PREDICTION LOGIC
 // ══════════════════════════════════════════════════
@@ -2665,7 +2634,7 @@ function render() {
             <span class="nav-icon">🧠</span>Mes picks
           </button>
           <button class="nav-item ${state.currentPage==='predictions'?'active':''}" onclick="navTo('predictions')">
-            <span class="nav-icon">📋</span>Pronostics
+            <span class="nav-icon">📋</span>Toutes les séries
           </button>
           <button class="nav-item ${state.currentPage==='bracket'?'active':''}" onclick="navTo('bracket')">
             <span class="nav-icon">🗂</span>Bracket
@@ -3189,25 +3158,14 @@ function renderLeaderboard() {
 
 // ── PREDICTIONS ──
 function renderPredictions() {
-  const visibleSeries = state.series.filter(isVisibleSeries);
-  
-  if(!visibleSeries.length) {
-  return `<div class="empty"><span class="empty-icon">📋</span>Aucune série disponible.<br>L'admin doit les ajouter.</div>`;
-  }
-  
+  if(!state.series.length) return `<div class="empty"><span class="empty-icon">📋</span>Aucune série disponible.<br>L'admin doit les ajouter.</div>`;
   const ROUND_ORDER = ['Premier tour','Demi-finales','Finales de conférence','Finales NBA'];
-  const activeSeries = visibleSeries.filter(s => s.status !== 'finished');
-  
-  if (!activeSeries.length) {
-  return `<div class="empty"><span class="empty-icon">✅</span>Toutes les séries sont terminées.<br>Consulte l'onglet Séries pour les résultats.</div>`;
-  }
-  
-  const rounds = [...new Set(activeSeries.map(s => s.round))]
-  .sort((a,b) => ROUND_ORDER.indexOf(a) - ROUND_ORDER.indexOf(b));
-  
+  const activeSeries = state.series.filter(s => s.status !== 'finished');
+  if (!activeSeries.length) return `<div class="empty"><span class="empty-icon">✅</span>Toutes les séries sont terminées.<br>Consulte l'onglet Séries pour les résultats.</div>`;
+  const rounds = [...new Set(activeSeries.map(s => s.round))].sort((a,b) => ROUND_ORDER.indexOf(a) - ROUND_ORDER.indexOf(b));
   return rounds.map(r => {
-  const ss = activeSeries.filter(s => s.round === r);
-  return `<div class="section-label">${r}</div>` + ss.map(s => renderPredCard(s)).join('');
+    const ss = activeSeries.filter(s => s.round === r);
+    return `<div class="section-label">${r}</div>` + ss.map(s => renderPredCard(s)).join('');
   }).join('');
 }
 
@@ -3357,11 +3315,7 @@ function renderPredCard(s) {
                   const gp = (mp.game_predictions || []).find(p => Number(p.game_number) === Number(g.game_number));
                   return `
                     <div class="game-row">
-                      <span style="color:var(--muted);min-width:62px;font-size:12px">${(() => {
-  const home = getHomeTeam(s, g.game_number);
-  const away = home === s.team1 ? s.team2 : s.team1;
-  return `Match ${g.game_number} • ${away} @ ${home}`;
-})()}</span>
+                      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
                       <span style="flex:1;font-size:12px;color:var(--muted)">${fmtDate(g.start_time)}</span>
                       <span class="badge badge-gray">${gp?.predicted_winner || '—'}</span>
                     </div>
@@ -3763,31 +3717,19 @@ function renderGamePredRow(g, s, mp, pid) {
   if(g.status==='finished') {
     const ok=myGWinner===g.winner;
     return `<div class="game-row">
-      <span style="color:var(--muted);min-width:62px;font-size:12px">${(() => {
-  const home = getHomeTeam(s, g.game_number);
-  const away = home === s.team1 ? s.team2 : s.team1;
-  return `Match ${g.game_number} • ${away} @ ${home}`;
-})()}</span>
+      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
       <span style="flex:1;font-size:12px;font-weight:600">🏆 ${g.winner}</span>
       ${myGWinner?`<span class="badge ${ok?'badge-green':'badge-gray'}">${myGWinner} ${ok?'✓':'✗'}</span>`:'<span style="color:var(--muted);font-size:12px">—</span>'}
     </div>`;
   } else if(isGameLocked(g)) {
     return `<div class="game-row">
-      <span style="color:var(--muted);min-width:62px;font-size:12px">${(() => {
-  const home = getHomeTeam(s, g.game_number);
-  const away = home === s.team1 ? s.team2 : s.team1;
-  return `Match ${g.game_number} • ${away} @ ${home}`;
-})()}</span>
+      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
       <span style="flex:1;font-size:11px;color:var(--muted)">${fmtDate(g.start_time)}</span>
       ${myGWinner?`<span class="badge badge-amber">🔒 ${myGWinner}</span>`:`<span class="badge badge-gray">—</span>`}
     </div>`;
   } else {
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${(() => {
-  const home = getHomeTeam(s, g.game_number);
-  const away = home === s.team1 ? s.team2 : s.team1;
-  return `Match ${g.game_number} • ${away} @ ${home}`;
-})()}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Match ${g.game_number} · ${fmtDate(g.start_time)}</div>
       <div class="team-picker" id="${gid}">
         <button class="team-btn ${myGWinner===s.team1?'selected':''}" onclick="pickGameWinner('${s.id}','${gid}',${g.game_number},'${s.team1}')">${s.team1}</button>
         <button class="team-btn ${myGWinner===s.team2?'selected':''}" onclick="pickGameWinner('${s.id}','${gid}',${g.game_number},'${s.team2}')">${s.team2}</button>
@@ -4138,11 +4080,7 @@ function renderSeriesPageInner() {
         <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
           ${gamesToShow.map(g => `
             <div class="game-row">
-              <span style="min-width:62px;font-size:12px;color:var(--muted)">${(() => {
-  const home = getHomeTeam(s, g.game_number);
-  const away = home === s.team1 ? s.team2 : s.team1;
-  return `Match ${g.game_number} • ${away} @ ${home}`;
-})()}</span>
+              <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
               <span style="flex:1;font-size:12px;color:var(--muted)">${g.start_time ? fmtDate(g.start_time) : ''}</span>
               ${g.status === 'finished'
                 ? `<span class="badge badge-green">🏆 ${g.winner}</span>`
@@ -4361,21 +4299,13 @@ function renderAdminCard(s) {
       const unreachable = s.status !== 'finished' && g.status !== 'finished' && (w1b >= 4 || w2b >= 4);
 
       if (unreachable) return `<div class="game-row" style="opacity:0.3">
-        <span style="min-width:62px;font-size:12px;color:var(--muted)">${(() => {
-  const home = getHomeTeam(s, g.game_number);
-  const away = home === s.team1 ? s.team2 : s.team1;
-  return `Match ${g.game_number} • ${away} @ ${home}`;
-})()}</span>
+        <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
         <span style="flex:1;font-size:12px;color:var(--dim)">Non joué</span>
       </div>`;
 
       const gidSafe = g.id.replace(/-/g,'_');
       return `<div class="game-row">
-        <span style="min-width:62px;font-size:12px;color:var(--muted)">${(() => {
-  const home = getHomeTeam(s, g.game_number);
-  const away = home === s.team1 ? s.team2 : s.team1;
-  return `Match ${g.game_number} • ${away} @ ${home}`;
-})()}</span>
+        <span style="min-width:62px;font-size:12px;color:var(--muted)">Match ${g.game_number}</span>
         <span style="flex:1;font-size:11px;color:var(--muted)">${fmtDate(g.start_time)}</span>
         ${g.status==='finished'
           ? `<div style="display:flex;align-items:center;gap:6px">
@@ -4800,13 +4730,6 @@ function bkMatchCard(series) {
     ${bkTeamRow(series.team2, s2, t2Win, t2Lose)}
     ${footer}
   </div>`;
-}
-
-function getHomeTeam(series, gameNumber){
-  const format = [1,1,2,2,1,2,1]; // format NBA
-  const homeIndex = format[gameNumber - 1];
-
-  return homeIndex === 1 ? series.team1 : series.team2;
 }
 
 function getSeriesByRoundConf(round, conf) {
@@ -5306,24 +5229,39 @@ function renderRulesHTML() {
                 <th style="text-align:right">Points</th>
               </tr>
             </thead>
+            <thead>
+              <tr>
+                <th>Bonne prédiction</th>
+                <th style="text-align:right">R1</th>
+                <th style="text-align:right">1/2</th>
+                <th style="text-align:right">Conf.</th>
+                <th style="text-align:right">Finale</th>
+              </tr>
+            </thead>
             <tbody>
               <tr>
-                <td>🏀 Bon vainqueur d'un match individuel</td>
-                <td>2 pts</td>
+                <td>🏀 Bon vainqueur d'un match</td>
+                <td style="text-align:right">3</td>
+                <td style="text-align:right">4</td>
+                <td style="text-align:right">5</td>
+                <td style="text-align:right">6</td>
               </tr>
               <tr>
                 <td>📊 Bon vainqueur de la série</td>
-                <td>3 pts</td>
+                <td style="text-align:right">5</td>
+                <td style="text-align:right">7</td>
+                <td style="text-align:right">9</td>
+                <td style="text-align:right">10</td>
               </tr>
               <tr>
                 <td>🎯 Score exact de la série (ex : 4-2)</td>
-                <td>+5 pts</td>
+                <td style="text-align:right">10</td>
+                <td style="text-align:right">10</td>
+                <td style="text-align:right">14</td>
+                <td style="text-align:right">16</td>
               </tr>
             </tbody>
           </table>
-          <div style="font-size:11px;color:var(--muted);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-            ⚠️ Le barème peut varier selon le round — l'admin peut ajuster les points par tour.
-          </div>
         </div>
       </div>
 
@@ -5398,10 +5336,10 @@ function renderRulesHTML() {
               </tr>
             </thead>
             <tbody>
-              <tr><td>Premier tour</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">1 pt</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">1 pt</td></tr>
-              <tr><td>Demi-finales</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">2 pts</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">2 pts</td></tr>
-              <tr><td>Finales de conf.</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">4 pts</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">4 pts</td></tr>
-              <tr><td>Finales NBA</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">8 pts</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">8 pts</td></tr>
+              <tr><td>Premier tour</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">20 pts</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">25 pts</td></tr>
+              <tr><td>Demi-finales</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">12 pts</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">15 pts</td></tr>
+              <tr><td>Finales de conf.</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">8 pts</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">10 pts</td></tr>
+              <tr><td>Finales NBA</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">4 pts</td><td style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:var(--gold)">5 pts</td></tr>
             </tbody>
           </table>
         </div>
