@@ -2634,7 +2634,7 @@ function render() {
             <span class="nav-icon">🧠</span>Mes picks
           </button>
           <button class="nav-item ${state.currentPage==='predictions'?'active':''}" onclick="navTo('predictions')">
-            <span class="nav-icon">📋</span>Toutes les séries
+            <span class="nav-icon">📋</span>Pronostics
           </button>
           <button class="nav-item ${state.currentPage==='bracket'?'active':''}" onclick="navTo('bracket')">
             <span class="nav-icon">🗂</span>Bracket
@@ -3705,6 +3705,14 @@ function renderMyPickCard(s, p) {
   `;
 }
 
+function getMatchup(g, s) {
+  // team1 = meilleure seed = domicile pour M1,2,5,7 — visiteur pour M3,4,6
+  const homeGames = [1,2,5,7];
+  const home = homeGames.includes(Number(g.game_number)) ? s.team1 : s.team2;
+  const away = homeGames.includes(Number(g.game_number)) ? s.team2 : s.team1;
+  return `${away} @ ${home}`;
+}
+
 function renderGamePredRow(g, s, mp, pid) {
   const gamePreds = mp?.game_predictions||[];
   const gpKey = `gp_${s.id}`;
@@ -3713,23 +3721,24 @@ function renderGamePredRow(g, s, mp, pid) {
   const savedGP = gamePreds.find(p=>Number(p.game_number)===Number(g.game_number));
   const myGWinner = tmpGP[g.game_number] || savedGP?.predicted_winner || null;
   const gid = `gp_${s.id.replace(/-/g,'_')}_g${g.game_number}`;
+  const matchup = getMatchup(g, s);
 
   if(g.status==='finished') {
     const ok=myGWinner===g.winner;
     return `<div class="game-row">
-      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
+      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}<br><span style="font-size:10px;opacity:0.7">${matchup}</span></span>
       <span style="flex:1;font-size:12px;font-weight:600">🏆 ${g.winner}</span>
       ${myGWinner?`<span class="badge ${ok?'badge-green':'badge-gray'}">${myGWinner} ${ok?'✓':'✗'}</span>`:'<span style="color:var(--muted);font-size:12px">—</span>'}
     </div>`;
   } else if(isGameLocked(g)) {
     return `<div class="game-row">
-      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}</span>
+      <span style="color:var(--muted);min-width:62px;font-size:12px">Match ${g.game_number}<br><span style="font-size:10px;opacity:0.7">${matchup}</span></span>
       <span style="flex:1;font-size:11px;color:var(--muted)">${fmtDate(g.start_time)}</span>
       ${myGWinner?`<span class="badge badge-amber">🔒 ${myGWinner}</span>`:`<span class="badge badge-gray">—</span>`}
     </div>`;
   } else {
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Match ${g.game_number} · ${fmtDate(g.start_time)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Match ${g.game_number} · ${matchup} · ${fmtDate(g.start_time)}</div>
       <div class="team-picker" id="${gid}">
         <button class="team-btn ${myGWinner===s.team1?'selected':''}" onclick="pickGameWinner('${s.id}','${gid}',${g.game_number},'${s.team1}')">${s.team1}</button>
         <button class="team-btn ${myGWinner===s.team2?'selected':''}" onclick="pickGameWinner('${s.id}','${gid}',${g.game_number},'${s.team2}')">${s.team2}</button>
