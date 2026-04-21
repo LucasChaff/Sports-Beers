@@ -1270,7 +1270,9 @@ function computeLeaderboard() {
       points_mvp: 0,
       points_champion: 0,
       predictions_count: 0,
-      correct_predictions: 0
+      correct_predictions: 0,
+      correct_games: 0,
+      total_games_predicted: 0
     };
   });
 
@@ -1314,17 +1316,26 @@ function computeLeaderboard() {
       }
     }
 
-    if (sw > 0 || se > 0 || sg > 0) {
+    // correct_predictions = séries correctement prédites (gagnant de série)
+    if (sw > 0) {
       entry.correct_predictions++;
     }
+    // correct_games = matchs individuels correctement prédits
+    seriesGames.forEach(g => {
+      if (g.status !== 'finished' || !g.winner) return;
+      const gp = gamePreds.find(x => Number(x.game_number) === Number(g.game_number));
+      if (gp) entry.total_games_predicted++;
+      if (gp && gp.predicted_winner === g.winner) entry.correct_games++;
+    });
 
-    // Double down: if active on this series AND series winner was correct → double all points from this series
+    // Double down: si activé sur cette série → double sg toujours, sw/se seulement si vainqueur correct
     const dd = state.doubleDowns.find(d => d.player_id === pred.player_id && d.series_id === s.id);
-    if (dd && sw > 0) {
-      // Only doubles points when the series winner was right
+    if (dd) {
       sg = sg * 2;
-      sw = sw * 2;
-      se = se * 2;
+      if (sw > 0) {
+        sw = sw * 2;
+        se = se * 2;
+      }
     }
 
     entry.points_games += sg;
@@ -1547,7 +1558,7 @@ function showResultBanner(series, missed = false) {
       if (gp && gp.predicted_winner === g.winner) ptsG += roundPts.match;
     });
     const dd = state.doubleDowns.find(d => d.player_id === pred.player_id && d.series_id === series.id);
-    if (dd && winOk) { ptsSW *= 2; ptsSE *= 2; ptsG *= 2; }
+    if (dd) { ptsG *= 2; if (winOk) { ptsSW *= 2; ptsSE *= 2; } }
     const total = ptsSW + ptsSE + ptsG;
     return { pl, total, winOk, ddActive: !!dd && winOk };
   }).filter(Boolean).sort((a, b) => b.total - a.total);
@@ -1671,7 +1682,7 @@ function getRoundRecap(round) {
         if (gp && gp.predicted_winner === g.winner) sg += roundPts.match;
       });
       const dd = state.doubleDowns.find(d => d.player_id === pred.player_id && d.series_id === s.id);
-      if (dd && winOk) { sw *= 2; se *= 2; sg *= 2; }
+      if (dd) { sg *= 2; if (winOk) { sw *= 2; se *= 2; } }
       playerPoints[pred.player_id] += sw + se + sg;
     });
   });
@@ -3174,7 +3185,7 @@ function renderLeaderboard() {
         ${avatarImg(first, '52px', 'border:2px solid var(--gold);box-shadow:0 0 20px rgba(245,197,24,0.3);')}
         <div>
           <div class="lb-podium-name">${first.name}${first.id===cp?.id?' <span style="font-size:12px;color:var(--accent);font-family:Barlow,sans-serif;font-weight:600;text-transform:none">toi</span>':''}</div>
-          <div class="lb-podium-sub">${first.correct_predictions} bonne(s) série(s) sur ${first.predictions_count} · <span style="color:var(--accent)">Voir profil →</span></div>
+          <div class="lb-podium-sub">${first.correct_games} bonne(s) prédiction(s) sur ${first.total_games_predicted} matchs · <span style="color:var(--accent)">Voir profil →</span></div>
         </div>
         <div style="text-align:right">
           <div class="lb-podium-pts">${first.total_points}</div>
@@ -3188,7 +3199,7 @@ function renderLeaderboard() {
         ${avatarImg(p, '36px')}
         <div>
           <div class="lb-name">${p.name}${p.id===cp?.id?' <span style="font-size:10px;color:var(--accent)">toi</span>':''}</div>
-          <div style="font-size:11px;color:var(--muted)">${p.correct_predictions} bonne(s) sur ${p.predictions_count}</div>
+          <div style="font-size:11px;color:var(--muted)">${p.correct_games} bonne(s) sur ${p.total_games_predicted} matchs</div>
         </div>
         <div style="text-align:right">
           <div class="lb-pts-sm">${p.total_points}</div>
@@ -5045,10 +5056,10 @@ function openPlayerProfile(playerId) {
       if (gp && gp.predicted_winner === g.winner) ptsGame += _ptsMW;
     });
 
-    // Double down : si actif et vainqueur correct → tout est doublé
+    // Double down : si actif → matchs doublés toujours ; sw/se doublés si vainqueur correct
     const dd = state.doubleDowns.find(d => d.player_id === playerId && d.series_id === s.id);
-    const ddActive = !!dd && winOk;
-    if (ddActive) { ptsSW *= 2; ptsSE *= 2; ptsGame *= 2; }
+    const ddActive = !!dd;
+    if (dd) { ptsGame *= 2; if (winOk) { ptsSW *= 2; ptsSE *= 2; } }
 
     const pts = ptsSW + ptsSE + ptsGame;
 
