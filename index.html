@@ -389,6 +389,61 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
   background:none;border:none;padding:4px;flex-shrink:0;
 }
 
+/* ── ESPN STATS MODAL ── */
+.stats-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.82);
+  z-index:250;display:flex;align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(10px);animation:fadeIn .2s ease;
+}
+@media(min-width:641px){
+  .stats-overlay{align-items:center;padding:16px}
+  .stats-sheet{border-radius:24px!important;border:1px solid var(--border2)!important;max-width:520px}
+}
+.stats-sheet{
+  width:100%;background:var(--card2);
+  border-radius:24px 24px 0 0;
+  border-top:1px solid var(--border2);
+  max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
+}
+.stats-handle{width:40px;height:4px;border-radius:2px;background:var(--border2);margin:14px auto 0;flex-shrink:0}
+.stats-header{padding:14px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.stats-tabs{display:flex;gap:5px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto}
+.stats-tab{
+  flex-shrink:0;padding:6px 14px;border-radius:999px;border:1.5px solid var(--border2);
+  background:transparent;color:var(--muted);font-family:'Barlow Condensed',sans-serif;
+  font-size:13px;font-weight:700;cursor:pointer;transition:all .18s;white-space:nowrap;
+}
+.stats-tab.active{background:var(--accent);border-color:transparent;color:#fff}
+.stats-tab.winner{border-color:rgba(29,185,84,0.4);color:var(--green)}
+.stats-tab.active.winner{background:var(--green);border-color:transparent;color:#fff}
+.stats-body{overflow-y:auto;flex:1;padding:14px}
+.stats-score-block{
+  display:flex;align-items:center;justify-content:space-between;
+  background:rgba(255,255,255,0.04);border-radius:16px;padding:14px 16px;margin-bottom:14px;
+}
+.stats-team-score{text-align:center;flex:1}
+.stats-team-name{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.stats-team-pts{font-family:'Barlow Condensed',sans-serif;font-size:44px;font-weight:900;line-height:1}
+.stats-sep{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:var(--muted);padding:0 8px}
+.stats-quarters{display:flex;gap:4px;justify-content:center;margin-top:5px}
+.stats-q{font-size:10px;color:var(--muted);background:rgba(255,255,255,0.05);border-radius:6px;padding:2px 6px}
+.stats-section-title{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);margin:14px 0 8px}
+.stats-leaders{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.stats-leader-card{background:rgba(255,255,255,0.04);border-radius:12px;padding:10px;text-align:center}
+.stats-leader-cat{font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.stats-leader-val{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;color:var(--gold);line-height:1}
+.stats-leader-name{font-size:10px;color:var(--text);margin-top:3px;font-weight:600}
+.stats-leader-team{font-size:9px;color:var(--muted)}
+.stats-box-team{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--accent);margin:12px 0 6px}
+.stats-box-table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px}
+.stats-box-table th{color:var(--muted);font-weight:700;font-size:10px;letter-spacing:0.05em;text-transform:uppercase;padding:3px 5px;text-align:right;border-bottom:1px solid var(--border)}
+.stats-box-table th:first-child{text-align:left}
+.stats-box-table td{padding:5px 5px;border-top:1px solid rgba(255,255,255,0.04);text-align:right;color:var(--muted)}
+.stats-box-table td:first-child{text-align:left;font-weight:600;color:var(--text)}
+.stats-box-table tr.top-scorer td{color:var(--text)}
+.stats-loading{text-align:center;padding:40px 20px;color:var(--muted);font-size:13px}
+.stats-error{text-align:center;padding:30px 20px;color:var(--muted);font-size:13px}
+
 /* ── TOAST ── */
 #toast{
   position:fixed;bottom:84px;left:50%;transform:translateX(-50%) translateY(16px);
@@ -980,6 +1035,9 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
 .bk-match:hover{border-color:var(--border2)}
 .bk-match.finished{border-color:rgba(29,185,84,0.25)}
 .bk-match.live{border-color:rgba(245,158,11,0.35);box-shadow:0 0 14px rgba(245,158,11,0.12)}
+.bk-match-clickable{cursor:pointer;position:relative}
+.bk-match-clickable:hover{border-color:var(--accent)!important;box-shadow:0 0 16px rgba(232,66,42,0.2);transform:translateY(-1px)}
+.bk-match-clickable:active{transform:translateY(0) scale(.98)}
 .bk-team{
   display:flex;align-items:center;gap:6px;
   padding:7px 8px;position:relative;
@@ -4209,9 +4267,10 @@ function renderSeriesPageInner() {
             ${vsTeamHTML(s.team2, true)}
           </div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
           <span class="badge badge-gray">${preds.length} pronostic(s)</span>
           ${s.start_time ? `<span class="badge badge-blue">⏰ ${fmtDate(s.start_time)}</span>` : ''}
+          ${finishedGames.length > 0 ? `<button class="btn btn-sm" style="margin-left:auto;font-size:11px;padding:5px 12px;border-radius:10px" onclick="openSeriesStats('${s.id}','${s.team1}','${s.team2}')">📊 Stats ESPN</button>` : ''}
         </div>
         ${gamesHTML}
       </div>`;
@@ -4825,8 +4884,10 @@ function bkMatchCard(series) {
   const showScore = isFinished || isLive;
   const s1 = showScore ? score1 : null;
   const s2 = showScore ? score2 : null;
+  const clickable = finishedGames.length > 0;
 
-  return `<div class="bk-match ${isFinished ? 'finished' : isLive ? 'live' : ''}">
+  return `<div class="bk-match ${isFinished ? 'finished' : isLive ? 'live' : ''}${clickable ? ' bk-match-clickable' : ''}"
+    ${clickable ? `onclick="openSeriesStats('${series.id}','${series.team1}','${series.team2}')" title="Voir les stats ESPN"` : ''}>
     ${bkTeamRow(series.team1, s1, t1Win, t1Lose)}
     ${bkTeamRow(series.team2, s2, t2Win, t2Lose)}
     ${footer}
@@ -5950,6 +6011,450 @@ async function _updatePushBtn() {
     btn.style.color = 'var(--muted)';
     btn.onclick = registerPushNotifications;
   }
+}
+
+// ══════════════════════════════════════════════════
+// ESPN GAME STATS
+// ══════════════════════════════════════════════════
+
+// Cache en mémoire : espnEventId → parsed stats
+const _espnStatsCache = {};
+// Cache séries : seriesId → [{ gameNumber, espnId }]
+const _espnSeriesCache = {};
+
+// Mapping surnom → abbreviation ESPN (pour matcher les équipes dans le scoreboard)
+const ESPN_ABBREV = {
+  'celtics':'BOS','nets':'BKN','knicks':'NY','76ers':'PHI','sixers':'PHI','raptors':'TOR',
+  'bulls':'CHI','cavaliers':'CLE','cavs':'CLE','pistons':'DET','pacers':'IND','bucks':'MIL',
+  'hawks':'ATL','hornets':'CHA','heat':'MIA','magic':'ORL','wizards':'WSH',
+  'nuggets':'DEN','timberwolves':'MIN','wolves':'MIN','thunder':'OKC','trail blazers':'POR',
+  'blazers':'POR','jazz':'UTA',
+  'warriors':'GS','gsw':'GSW','clippers':'LAC','lakers':'LAL','suns':'PHX','kings':'SAC',
+  'mavericks':'DAL','mavs':'DAL','rockets':'HOU','grizzlies':'MEM','grizz':'MEM',
+  'pelicans':'NO','spurs':'SA',
+  // full names
+  'boston celtics':'BOS','brooklyn nets':'BKN','new york knicks':'NY',
+  'philadelphia 76ers':'PHI','toronto raptors':'TOR','chicago bulls':'CHI',
+  'cleveland cavaliers':'CLE','detroit pistons':'DET','indiana pacers':'IND',
+  'milwaukee bucks':'MIL','atlanta hawks':'ATL','charlotte hornets':'CHA',
+  'miami heat':'MIA','orlando magic':'ORL','washington wizards':'WSH',
+  'denver nuggets':'DEN','minnesota timberwolves':'MIN','oklahoma city thunder':'OKC',
+  'portland trail blazers':'POR','utah jazz':'UTA','golden state warriors':'GS',
+  'los angeles clippers':'LAC','los angeles lakers':'LAL','phoenix suns':'PHX',
+  'sacramento kings':'SAC','dallas mavericks':'DAL','houston rockets':'HOU',
+  'memphis grizzlies':'MEM','new orleans pelicans':'NO','san antonio spurs':'SA',
+};
+
+function espnAbbrev(teamName) {
+  return ESPN_ABBREV[(teamName||'').toLowerCase().trim()] || null;
+}
+
+async function findEspnEventsForSeries(seriesId, team1, team2, seriesStartTime) {
+  if (_espnSeriesCache[seriesId]) return _espnSeriesCache[seriesId];
+
+  if (!seriesStartTime) return [];
+
+  const abbr1 = espnAbbrev(team1);
+  const abbr2 = espnAbbrev(team2);
+  if (!abbr1 || !abbr2) return [];
+
+  const finishedGames = (state.games[seriesId] || []).filter(g => g.status === 'finished');
+  if (!finishedGames.length) return [];
+
+  const startD = new Date(seriesStartTime);
+  const endD = new Date(startD.getTime() + 42 * 86400000);
+
+  const fmt = d => d.getFullYear().toString()
+    + String(d.getMonth()+1).padStart(2,'0')
+    + String(d.getDate()).padStart(2,'0');
+
+  const matched = [];
+  const seen = new Set();
+
+  // ESPN accepte une plage de dates : dates=YYYYMMDD-YYYYMMDD (max ~20 jours par requête)
+  // On découpe en tranches de 14 jours pour rester dans les limites
+  const chunkDays = 14;
+  const cursor = new Date(startD);
+  cursor.setDate(cursor.getDate() - 1); // J-1 pour absorber les décalages TZ
+
+  while (cursor < endD) {
+    const from = new Date(cursor);
+    const to = new Date(Math.min(cursor.getTime() + chunkDays * 86400000, endD.getTime()));
+    const rangeStr = `${fmt(from)}-${fmt(to)}`;
+
+    try {
+      const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${rangeStr}&limit=100`);
+      if (res.ok) {
+        const data = await res.json();
+        for (const ev of (data.events || [])) {
+          if (seen.has(ev.id)) continue;
+          const comp = ev.competitions?.[0];
+          if (!comp) continue;
+          const abbrs = (comp.competitors || []).map(c => (c.team?.abbreviation || '').toUpperCase());
+          if (abbrs.includes(abbr1.toUpperCase()) && abbrs.includes(abbr2.toUpperCase())) {
+            const evDate = ev.date ? new Date(ev.date) : null;
+            if (evDate) {
+              seen.add(ev.id);
+              matched.push({ date: evDate, espnId: ev.id });
+            }
+          }
+        }
+      }
+    } catch(e) { /* continue */ }
+
+    cursor.setDate(cursor.getDate() + chunkDays + 1);
+  }
+
+  matched.sort((a,b) => a.date - b.date);
+  const sortedGames = [...finishedGames].sort((a,b) => a.game_number - b.game_number);
+
+  const result = sortedGames.map((g, i) => ({
+    gameNumber: g.game_number,
+    espnId: matched[i]?.espnId || null,
+  })).filter(x => x.espnId);
+
+  _espnSeriesCache[seriesId] = result;
+  return result;
+}
+
+async function findEspnEventId(gameId, team1, team2, startTime) {
+  // Legacy – not used for series navigation, kept for compatibility
+  if (!startTime) return null;
+  const abbr1 = espnAbbrev(team1);
+  const abbr2 = espnAbbrev(team2);
+  const d = new Date(startTime);
+  const dateStr = d.getFullYear().toString()
+    + String(d.getMonth()+1).padStart(2,'0')
+    + String(d.getDate()).padStart(2,'0');
+  const dates = [dateStr];
+  const dMinus = new Date(d); dMinus.setDate(dMinus.getDate()-1);
+  const dPlus  = new Date(d); dPlus.setDate(dPlus.getDate()+1);
+  dates.unshift(dMinus.getFullYear().toString()+String(dMinus.getMonth()+1).padStart(2,'0')+String(dMinus.getDate()).padStart(2,'0'));
+  dates.push(dPlus.getFullYear().toString()+String(dPlus.getMonth()+1).padStart(2,'0')+String(dPlus.getDate()).padStart(2,'0'));
+  for (const dt of dates) {
+    try {
+      const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${dt}&limit=50`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const events = data.events || [];
+      for (const ev of events) {
+        const comp = ev.competitions?.[0];
+        if (!comp) continue;
+        const competitors = comp.competitors || [];
+        const abbrs = competitors.map(c => (c.team?.abbreviation||'').toUpperCase());
+        const matched = abbr1 && abbr2
+          ? (abbrs.includes(abbr1.toUpperCase()) && abbrs.includes(abbr2.toUpperCase()))
+          : abbrs.some(a => a === (abbr1||'').toUpperCase() || a === (abbr2||'').toUpperCase());
+        if (matched) return ev.id;
+      }
+    } catch(e) { /* continue */ }
+  }
+  return null;
+}
+
+async function fetchEspnStats(espnEventId) {
+  if (_espnStatsCache[espnEventId]) return _espnStatsCache[espnEventId];
+  const res = await fetch(`https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${espnEventId}`);
+  if (!res.ok) throw new Error('ESPN indisponible');
+  const data = await res.json();
+  const parsed = parseEspnStats(data);
+  _espnStatsCache[espnEventId] = parsed;
+  return parsed;
+}
+
+function parseEspnStats(data) {
+  const comp = data.header?.competitions?.[0] || data.boxscore?.teams?.[0] && data;
+  const boxscore = data.boxscore || {};
+  const teams = boxscore.teams || [];
+
+  // Score + quart-temps
+  const headerComp = data.header?.competitions?.[0];
+  const homeTeam = headerComp?.competitors?.find(c => c.homeAway === 'home');
+  const awayTeam = headerComp?.competitors?.find(c => c.homeAway === 'away');
+
+  const homeName = homeTeam?.team?.shortDisplayName || homeTeam?.team?.displayName || '?';
+  const awayName = awayTeam?.team?.shortDisplayName || awayTeam?.team?.displayName || '?';
+  const homeScore = homeTeam?.score || '—';
+  const awayScore = awayTeam?.score || '—';
+
+  // Linescores (quarts)
+  const homeLinescores = homeTeam?.linescores?.map(l => l.displayValue) || [];
+  const awayLinescores = awayTeam?.linescores?.map(l => l.displayValue) || [];
+
+  // Leaders
+  const leaders = [];
+  (data.leaders || []).forEach(cat => {
+    const leader = cat.leaders?.[0];
+    if (!leader) return;
+    leaders.push({
+      category: cat.shortDisplayName || cat.displayName || '',
+      value: leader.displayValue || '',
+      name: leader.athlete?.shortName || leader.athlete?.displayName || '?',
+      team: leader.team?.abbreviation || '',
+    });
+  });
+
+  // Boxscore joueurs
+  const teamBoxes = teams.map(t => {
+    const teamName = t.team?.shortDisplayName || t.team?.displayName || '?';
+    const stats = t.statistics || [];
+    const athletes = boxscore.players?.find(p => p.team?.id === t.team?.id)?.statistics?.[0];
+    const playerRows = (athletes?.athletes || []).map(a => {
+      const vals = a.stats || [];
+      const labels = athletes.labels || [];
+      const stat = (key) => {
+        const i = labels.indexOf(key);
+        return i >= 0 ? (vals[i] || '0') : '—';
+      };
+      return {
+        name: a.athlete?.shortName || a.athlete?.displayName || '?',
+        min: stat('MIN'),
+        pts: stat('PTS'),
+        reb: stat('REB'),
+        ast: stat('AST'),
+        stl: stat('STL'),
+        blk: stat('BLK'),
+        fg: stat('FG'),
+        tp: stat('3PT'),
+        ft: stat('FT'),
+        to: stat('TO'),
+      };
+    }).filter(p => p.min !== '0:00' && p.min !== '0' && p.min !== '—');
+    return { teamName, players: playerRows };
+  });
+
+  return { homeName, awayName, homeScore, awayScore, homeLinescores, awayLinescores, leaders, teamBoxes };
+}
+
+async function openSeriesStats(seriesId, team1, team2) {
+  const existing = document.getElementById('stats-overlay');
+  if (existing) existing.remove();
+
+  const s = state.series.find(x => x.id === seriesId);
+  const finishedGames = (state.games[seriesId] || []).filter(g => g.status === 'finished').sort((a,b) => a.game_number - b.game_number);
+  if (!finishedGames.length) return toast('Aucun match joué dans cette série');
+
+  // Crée la modale avec loader
+  const overlay = document.createElement('div');
+  overlay.className = 'stats-overlay';
+  overlay.id = 'stats-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="stats-sheet" onclick="event.stopPropagation()">
+      <div class="stats-handle"></div>
+      <div class="stats-header">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;text-transform:uppercase">
+              ${team1} vs ${team2}
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">Stats ESPN</div>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="document.getElementById('stats-overlay').remove()">✕</button>
+        </div>
+      </div>
+      <div class="stats-body">
+        <div class="stats-loading">
+          <div class="spinner" style="margin:0 auto 14px"></div>
+          Recherche des matchs ESPN…
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  try {
+    const gameList = await findEspnEventsForSeries(seriesId, team1, team2, s?.start_time);
+
+    if (!gameList.length) {
+      document.querySelector('#stats-overlay .stats-body').innerHTML =
+        `<div class="stats-error">😕 Matchs introuvables sur ESPN.<br><span style="font-size:11px">Vérifiez que la date de début de série est renseignée.</span></div>`;
+      return;
+    }
+
+    // On garde l'index du match courant dans la modale
+    overlay._currentIndex = 0;
+    overlay._gameList = gameList;
+    overlay._team1 = team1;
+    overlay._team2 = team2;
+
+    await loadSeriesStatsPage(0);
+  } catch(e) {
+    const body = document.querySelector('#stats-overlay .stats-body');
+    if (body) body.innerHTML = `<div class="stats-error">❌ Impossible de charger les stats.<br><span style="font-size:11px">${e.message}</span></div>`;
+  }
+}
+
+async function loadSeriesStatsPage(index) {
+  const overlay = document.getElementById('stats-overlay');
+  if (!overlay) return;
+  const gameList = overlay._gameList;
+  const team1 = overlay._team1;
+  const team2 = overlay._team2;
+  const entry = gameList[index];
+  if (!entry) return;
+
+  overlay._currentIndex = index;
+  const total = gameList.length;
+  const gameNumber = entry.gameNumber;
+
+  // Affiche loader dans le body
+  const sheet = overlay.querySelector('.stats-sheet');
+  const bodyEl = sheet.querySelector('.stats-body');
+  bodyEl.innerHTML = `<div class="stats-loading"><div class="spinner" style="margin:0 auto 14px"></div>Chargement du match ${gameNumber}…</div>`;
+
+  try {
+    const stats = await fetchEspnStats(entry.espnId);
+    renderSeriesStatsInModal(stats, team1, team2, gameNumber, entry.espnId, index, total);
+  } catch(e) {
+    bodyEl.innerHTML = `<div class="stats-error">❌ Impossible de charger les stats.<br><span style="font-size:11px">${e.message}</span></div>`;
+  }
+}
+
+function renderSeriesStatsInModal(stats, team1, team2, gameNumber, espnId, currentIndex, total) {
+  const overlay = document.getElementById('stats-overlay');
+  if (!overlay) return;
+  const sheet = overlay.querySelector('.stats-sheet');
+
+  const qLabels = ['Q1','Q2','Q3','Q4','OT'];
+  const homeQ = stats.homeLinescores.map((v,i) => `<span class="stats-q">${qLabels[i]||'OT'} <strong style="color:var(--text)">${v}</strong></span>`).join('');
+  const awayQ = stats.awayLinescores.map((v,i) => `<span class="stats-q">${qLabels[i]||'OT'} <strong style="color:var(--text)">${v}</strong></span>`).join('');
+
+  const homeWon = Number(stats.homeScore) > Number(stats.awayScore);
+  const awayWon = Number(stats.awayScore) > Number(stats.homeScore);
+
+  const topLeaders = stats.leaders.filter(l => {
+    const cat = (l.category || '').toUpperCase();
+    return ['PTS','REB','AST'].includes(cat) || ['Points','Rebonds','Passes'].some(x => (l.category||'').includes(x));
+  }).slice(0,3);
+  const leadersHTML = topLeaders.length ? `
+    <div class="stats-section-title">Leaders</div>
+    <div class="stats-leaders">
+      ${topLeaders.map(l => `
+        <div class="stats-leader-card">
+          <div class="stats-leader-cat">${l.category}</div>
+          <div class="stats-leader-val">${l.value.split(' ')[0]}</div>
+          <div class="stats-leader-name">${l.name}</div>
+          <div class="stats-leader-team">${l.team}</div>
+        </div>`).join('')}
+    </div>` : '';
+
+  const boxHTML = stats.teamBoxes.map(tb => {
+    if (!tb.players.length) return '';
+    const maxPts = Math.max(...tb.players.map(p => Number(p.pts)||0));
+    return `
+      <div class="stats-box-team">${tb.teamName}</div>
+      <table class="stats-box-table">
+        <thead><tr>
+          <th style="text-align:left">Joueur</th>
+          <th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th>
+        </tr></thead>
+        <tbody>
+          ${tb.players.map(p => `
+            <tr class="${(Number(p.pts)||0) === maxPts && maxPts > 0 ? 'top-scorer' : ''}">
+              <td>${p.name}</td>
+              <td>${p.min}</td>
+              <td style="color:${(Number(p.pts)||0)===maxPts&&maxPts>0?'var(--gold)':'inherit'};font-weight:${(Number(p.pts)||0)===maxPts&&maxPts>0?'800':'400'}">${p.pts}</td>
+              <td>${p.reb}</td><td>${p.ast}</td><td>${p.stl}</td><td>${p.blk}</td><td>${p.to}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }).join('');
+
+  // Navigation dots
+  const dotsHTML = total > 1 ? `
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:12px">
+      ${Array.from({length:total},(_,i) => `
+        <button onclick="loadSeriesStatsPage(${i})"
+          style="width:${i===currentIndex?'24':'8'}px;height:8px;border-radius:999px;border:none;cursor:pointer;
+                 transition:all .25s;background:${i===currentIndex?'var(--accent)':'rgba(255,255,255,0.2)'}">
+        </button>`).join('')}
+    </div>` : '';
+
+  // Nav prev/next
+  const navHTML = total > 1 ? `
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn btn-sm${currentIndex===0?' btn-ghost':''}" style="flex:1"
+        onclick="loadSeriesStatsPage(${currentIndex-1})"
+        ${currentIndex===0?'disabled':''}>← Match ${currentIndex > 0 ? overlay._gameList[currentIndex-1].gameNumber : ''}</button>
+      <button class="btn btn-sm${currentIndex===total-1?' btn-ghost':''}" style="flex:1"
+        onclick="loadSeriesStatsPage(${currentIndex+1})"
+        ${currentIndex===total-1?'disabled':''}>Match ${currentIndex < total-1 ? overlay._gameList[currentIndex+1].gameNumber : ''} →</button>
+    </div>` : '';
+
+  sheet.innerHTML = `
+    <div class="stats-handle"></div>
+    <div class="stats-header">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;text-transform:uppercase">
+            ${team1} vs ${team2}
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Match ${gameNumber} · Stats ESPN</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('stats-overlay').remove()">✕</button>
+      </div>
+    </div>
+    <div class="stats-body" id="stats-body-swipe">
+      ${navHTML}
+      <div class="stats-score-block">
+        <div class="stats-team-score">
+          <div class="stats-team-name">${stats.awayName}</div>
+          <div class="stats-team-pts" style="color:${awayWon?'var(--green)':'var(--text)'}">${stats.awayScore}</div>
+          <div class="stats-quarters">${awayQ}</div>
+        </div>
+        <div class="stats-sep">–</div>
+        <div class="stats-team-score">
+          <div class="stats-team-name">${stats.homeName}</div>
+          <div class="stats-team-pts" style="color:${homeWon?'var(--green)':'var(--text)'}">${stats.homeScore}</div>
+          <div class="stats-quarters">${homeQ}</div>
+        </div>
+      </div>
+      ${leadersHTML}
+      ${boxHTML ? `<div class="stats-section-title">Boxscore</div>${boxHTML}` : ''}
+      <div style="text-align:center;margin-top:12px">
+        <a href="https://www.espn.com/nba/game/_/gameId/${espnId}" target="_blank"
+           style="font-size:11px;color:var(--muted);text-decoration:none">
+          Voir sur ESPN →
+        </a>
+      </div>
+      ${dotsHTML}
+    </div>`;
+
+  // Swipe tactile gauche/droite
+  const bodyEl = sheet.querySelector('#stats-body-swipe');
+  if (bodyEl && total > 1) {
+    let touchStartX = null;
+    bodyEl.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    bodyEl.addEventListener('touchend', e => {
+      if (touchStartX === null) return;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      touchStartX = null;
+      if (Math.abs(dx) < 40) return; // trop petit, on ignore
+      const overlay = document.getElementById('stats-overlay');
+      if (!overlay) return;
+      const idx = overlay._currentIndex;
+      if (dx < 0 && idx < total - 1) loadSeriesStatsPage(idx + 1); // swipe gauche → suivant
+      if (dx > 0 && idx > 0)         loadSeriesStatsPage(idx - 1); // swipe droite → précédent
+    }, { passive: true });
+  }
+}
+
+async function openGameStats(gameId, team1, team2, gameNumber) {
+  // Legacy: cherche la série parente et délègue à openSeriesStats
+  const seriesId = Object.keys(state.games).find(sid =>
+    (state.games[sid]||[]).some(g => g.id === gameId)
+  );
+  if (seriesId) {
+    await openSeriesStats(seriesId, team1, team2);
+    // Après chargement, on navigue vers le bon match
+    const overlay = document.getElementById('stats-overlay');
+    if (overlay?._gameList) {
+      const idx = overlay._gameList.findIndex(x => x.gameNumber === gameNumber);
+      if (idx >= 0 && idx !== overlay._currentIndex) await loadSeriesStatsPage(idx);
+    }
+    return;
+  }
+  toast('Série introuvable');
 }
 
 init();
