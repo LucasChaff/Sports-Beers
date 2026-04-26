@@ -368,8 +368,8 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
 
 /* ── PUSH BANNER ── */
 #push-banner{
-  position:fixed;bottom:72px;left:50%;transform:translateX(-50%);
-  z-index:290;width:calc(100% - 24px);max-width:440px;
+  position:fixed;bottom:72px;left:12px;right:12px;
+  z-index:290;max-width:440px;margin:0 auto;
   background:linear-gradient(135deg,rgba(20,20,35,0.97),rgba(12,12,20,0.97));
   border:1px solid rgba(61,127,255,0.35);border-radius:16px;
   padding:12px 14px;display:flex;align-items:center;gap:10px;
@@ -5376,7 +5376,7 @@ function renderRulesHTML() {
         <div class="rules-card">
           <div class="rules-card-icon">🎲</div>
           <div class="rules-card-title">Bonus risqué</div>
-          <div class="rules-card-body">Une fois par round, double tes points sur une série si tu trouves le bon vainqueur.</div>
+          <div class="rules-card-body">1 seul bonus pour tout le tournoi. Les points gagnés sur la série sont doublés. Annulable librement tant que la série n'a pas commencé.</div>
         </div>
       </div>
 
@@ -5418,7 +5418,7 @@ function renderRulesHTML() {
               <tr>
                 <td>🎯 Score exact de la série (ex : 4-2)</td>
                 <td style="text-align:right">10</td>
-                <td style="text-align:right">10</td>
+                <td style="text-align:right">12</td>
                 <td style="text-align:right">14</td>
                 <td style="text-align:right">16</td>
               </tr>
@@ -5558,16 +5558,16 @@ const MVP_CANDIDATES = [
   { name:'Luka Doncic',             short:'Doncic',    team:'LA Lakers',       espnId:'3945274' },
   { name:'Jalen Brunson',           short:'Brunson',   team:'NY Knicks',       espnId:'3934672' },
   { name:'Anthony Edwards',         short:'Ant',       team:'Minnesota',       espnId:'4594268' },
-  { name:'Karl-Anthony Towns',      short:'KAT',       team:'NY Knicks',       espnId:'3136195' },
+  { name:'Karl-Anthony Towns',      short:'KAT',       team:'NY Knicks',       espnId:'3136779' },
   { name:'Cade Cunningham',         short:'Cade',      team:'Detroit Pistons', espnId:'4432166' },
   { name:'Donovan Mitchell',        short:'Spida',     team:'Cleveland Cavs',  espnId:'3908809' },
   { name:'Giannis Antetokounmpo',   short:'Giannis',   team:'Milwaukee Bucks', espnId:'3032977' },
   { name:'LeBron James',            short:'LeBron',    team:'LA Lakers',       espnId:'1966'    },
   { name:'Stephen Curry',           short:'Curry',     team:'Golden State',    espnId:'3975'    },
   { name:'Kevin Durant',            short:'KD',        team:'Houston Rockets', espnId:'3202'    },
-  { name:'Jalen Johnson',           short:'J. Johnson',team:'Atlanta Hawks',   espnId:'4701230' },
-  { name:'Victor Wembanyama',       short:'Wemby',     team:'San Antonio',     espnId:'5104157' },
-  { name:'Evan Mobley',             short:'Mobley',    team:'Cleveland Cavs',  espnId:'4432158' },
+  { name:'Jalen Johnson',           short:'J. Johnson',team:'Atlanta Hawks',   espnId:'4431688' },
+  { name:'Victor Wembanyama',       short:'Wemby',     team:'San Antonio',     espnId:'4896397' },
+  { name:'Evan Mobley',             short:'Mobley',    team:'Cleveland Cavs',  espnId:'4431677' },
 ];
 
 function playerPhoto(espnId) {
