@@ -3325,6 +3325,15 @@ function renderPredCard(s) {
   const ptsSW = roundPoints.series;
   const ptsSE = roundPoints.exact;
 
+  // Compute series score from finished games
+  const finishedGames = sGames.filter(g => g.status === 'finished');
+  let wins1 = 0, wins2 = 0;
+  finishedGames.forEach(g => {
+    if (g.winner === s.team1) wins1++;
+    else if (g.winner === s.team2) wins2++;
+  });
+  const showSeriesScore = finishedGames.length > 0 && s.status !== 'finished';
+
   // Status badge
   let badge = '';
   if (s.status === 'finished') badge = `<span class="badge badge-green">✓ Terminé</span>`;
@@ -3560,7 +3569,16 @@ function renderPredCard(s) {
 
       <div class="vs-block">
         ${vsTeamHTML(s.team1)}
-        <div class="vs-sep">VS</div>
+        ${showSeriesScore
+          ? `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+               <div style="display:flex;align-items:center;gap:8px">
+                 <span style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;color:${wins1>wins2?'var(--green)':wins1<wins2?'var(--muted)':'var(--text)'}">${wins1}</span>
+                 <span style="font-size:13px;color:var(--muted);font-weight:700">–</span>
+                 <span style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;color:${wins2>wins1?'var(--green)':wins2<wins1?'var(--muted)':'var(--text)'}">${wins2}</span>
+               </div>
+               <span style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber);font-weight:700">En cours</span>
+             </div>`
+          : `<div class="vs-sep">VS</div>`}
         ${vsTeamHTML(s.team2, true)}
       </div>
 
