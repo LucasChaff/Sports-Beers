@@ -33,6 +33,25 @@
   --r:12px;
   --r2:20px;
 }
+[data-theme="light"]{
+  --bg:#f0f2f7;
+  --surface:#e4e7f0;
+  --card:#ffffff;
+  --card2:#eef0f8;
+  --border:rgba(0,0,0,0.08);
+  --border2:rgba(0,0,0,0.16);
+  --text:#0d0f1a;
+  --muted:rgba(30,35,70,0.5);
+  --dim:rgba(30,35,70,0.25);
+  --accent:#e8422a;
+  --accent2:#ff7a5c;
+  --gold:#c9940a;
+  --gold2:#e0aa00;
+  --blue:#2563d4;
+  --green:#16a34a;
+  --red:#e8422a;
+  --amber:#d97706;
+}
 body{
   font-family:'Barlow',sans-serif;
   background:var(--bg);
@@ -68,6 +87,13 @@ body::before{
   -webkit-backdrop-filter:blur(24px) saturate(1.4);
   border-bottom:1px solid var(--border2);
 }
+[data-theme="light"] .app-header{background:rgba(240,242,247,0.92)}
+
+/* ── NAV LIGHT THEME ── */
+[data-theme="light"] .header-player-btn{background:rgba(0,0,0,0.06);border-color:rgba(0,0,0,0.14)}
+[data-theme="light"] .header-player-btn:hover{background:rgba(0,0,0,0.11);border-color:rgba(0,0,0,0.22)}
+[data-theme="light"] .nav-item{color:rgba(30,35,70,0.45)}
+[data-theme="light"] .nav-item.active{color:var(--accent)}
 .header-top{
   display:flex;align-items:center;gap:10px;
   padding:14px 16px 10px;
@@ -2684,6 +2710,9 @@ function render() {
           <button class="header-player-btn" onclick="openRules()" style="padding:6px 10px;margin-left:0" title="Règles du jeu">
             <span style="font-size:14px">📖</span>
           </button>
+          <button class="header-player-btn" id="header-theme-btn" onclick="toggleTheme()" style="padding:6px 10px;margin-left:0" title="Thème clair / sombre">
+            <span style="font-size:14px" id="header-theme-icon">${document.documentElement.dataset.theme==='light'?'☀️':'🌙'}</span>
+          </button>
           <button class="header-player-btn" id="header-push-btn" onclick="togglePushFromHeader()" style="padding:6px 10px;margin-left:0" title="Notifications">
             <span style="font-size:14px;opacity:${state.pushStatus === 'denied' ? '0.4' : state.pushStatus === 'on' ? '1' : '0.6'}" id="header-push-icon">${state.pushStatus === 'on' ? '🔔' : '🔕'}</span>
           </button>
@@ -2725,6 +2754,22 @@ function render() {
     }     
 
 function navTo(p){state.currentPage=p;render();}
+
+function toggleTheme() {
+  const isLight = document.documentElement.dataset.theme === 'light';
+  const next = isLight ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next === 'dark' ? '' : 'light';
+  localStorage.setItem('nba26_theme', next);
+  const icon = document.getElementById('header-theme-icon');
+  if (icon) icon.textContent = next === 'light' ? '☀️' : '🌙';
+}
+
+// Init theme on load
+(function(){
+  const saved = localStorage.getItem('nba26_theme');
+  if (saved === 'light') document.documentElement.dataset.theme = 'light';
+})();
+
 function switchPlayer() {
   if(!confirm('Changer de joueur ?')) return;
   state.currentPlayer=null; localStorage.removeItem('nba26_player');
