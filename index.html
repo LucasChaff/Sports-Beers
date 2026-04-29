@@ -1495,10 +1495,11 @@ async function init() {
   }
   render();
   // Lancer la synchronisation automatique des résultats ESPN
-  setTimeout(async () => {
-    await autoSyncGameResults();
+  // On ne sync PAS au refresh — scheduleAutoSync gère le timing toutes les heures
+  setTimeout(() => {
+    _renderAdminSyncStatus(); // affiche juste la dernière info sauvegardée
     scheduleAutoSync();
-  }, 3000); // petit délai pour laisser l'UI se rendre en premier
+  }, 3000);
   // Démarrer le polling des scores live (après 5s)
   setTimeout(refreshLiveScores, 5000);
 }
@@ -2903,6 +2904,38 @@ const ROUND_NEXT = {
   'Finales de conférence': 'Finales NBA',
 };
 
+/**
+ * Règle du bracket NBA : le vainqueur d'un slot du 1er tour rejoint
+ * un slot précis de demi-finale, indépendamment de l'ordre de création.
+ *
+ * Clé = bracket_slot de la série source (1er tour ou demi-finale)
+ * Valeur = bracket_slot de la série cible (demi-finale ou finale de conf)
+ */
+const BRACKET_NEXT_SLOT = {
+  // Ouest 1er tour → Demi-finales Ouest
+  // SF1 : Thunder (#1 vs Suns #7)  +  Lakers (#4 vs Rockets #5)
+  // SF2 : Spurs (#2 vs Blazers #8) +  Nuggets (#3 vs Timberwolves #6)
+  'W-1v7': 'W-SF1',
+  'W-4v5': 'W-SF1',
+  'W-2v8': 'W-SF2',
+  'W-3v6': 'W-SF2',
+  // Est 1er tour → Demi-finales Est
+  // SF1 : Pistons (#1 vs Magic #8)  +  Cavaliers (#4 vs Raptors #5)
+  // SF2 : Celtics (#2 vs 76ers #7)  +  Knicks (#3 vs Hawks #6)
+  'E-1v8': 'E-SF1',
+  'E-4v5': 'E-SF1',
+  'E-2v7': 'E-SF2',
+  'E-3v6': 'E-SF2',
+  // Demi-finales → Finales de conférence
+  'W-SF1': 'W-CF',
+  'W-SF2': 'W-CF',
+  'E-SF1': 'E-CF',
+  'E-SF2': 'E-CF',
+  // Finales de conférence → Finales NBA (géré séparément)
+  'W-CF': null,
+  'E-CF': null,
+};
+
 async function setSeriesResult(id, winner, games) {
   try {
     const { error: e1 } = await sb
@@ -3032,6 +3065,18 @@ async function create7Games(seriesId) {
   }
 }
 
+async function forceAdvanceToNextRound(seriesId, winner) {
+  if (!confirm(`Forcer l'avancement de ${winner} au tour suivant ?`)) return;
+  await loadSeries();
+  const series = state.series.find(s => s.id === seriesId);
+  if (!series) return toast('❌ Série introuvable');
+  if (!winner) return toast('❌ Pas de vainqueur défini');
+  await autoAdvanceToNextRound(series, winner);
+  await loadSeries();
+  render();
+  toast('✅ ' + winner + ' avancé au tour suivant !');
+}
+
 async function autoAdvanceToNextRound(series, winnerTeam) {
   const nextRound = ROUND_NEXT[series.round];
   if (!nextRound) return;
@@ -3048,7 +3093,6 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
   if (isNBAFinals) {
     const existingFinals = state.series.find(s => s.round === 'Finales NBA');
     if (existingFinals && existingFinals.team2 === 'À déterminer') {
-      // Already has 7 games — just update the team name
       skipNextSeriesRealtime += 1;
       await sb.from('series').update({ team2: winnerTeam }).eq('id', existingFinals.id);
     } else if (!existingFinals) {
@@ -3062,7 +3106,46 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
       }).select().single();
       if (newS) await create7Games(newS.id);
     }
+    return;
+  }
+
+  // ── Logique de seeding via bracket_slot ───────────────────────────
+  // Si la série source a un bracket_slot, on cible la demi-finale correspondante.
+  // Sinon, fallback sur l'ancien comportement (premier slot disponible).
+  const srcSlot = series.bracket_slot || null;
+  const destSlot = srcSlot ? BRACKET_NEXT_SLOT[srcSlot] : null;
+
+  if (destSlot) {
+    // Chercher la série cible par son bracket_slot
+    const targetSeries = state.series.find(s =>
+      s.round === nextRound &&
+      s.bracket_slot === destSlot
+    );
+
+    if (targetSeries) {
+      // La demi-finale existe déjà — on remplace le premier slot "À déterminer"
+      skipNextSeriesRealtime += 1;
+      if (targetSeries.team1 === 'À déterminer') {
+        await sb.from('series').update({ team1: winnerTeam }).eq('id', targetSeries.id);
+      } else if (targetSeries.team2 === 'À déterminer') {
+        await sb.from('series').update({ team2: winnerTeam }).eq('id', targetSeries.id);
+      }
+    } else {
+      // Créer la demi-finale avec le bon bracket_slot
+      skipNextSeriesRealtime += 1;
+      const { data: newS } = await sb.from('series').insert({
+        team1: winnerTeam,
+        team2: 'À déterminer',
+        round: nextRound,
+        conference: conf,
+        bracket_slot: destSlot,
+        status: 'upcoming'
+      }).select().single();
+      if (newS) await create7Games(newS.id);
+    }
   } else {
+    // Fallback : ancien comportement si pas de bracket_slot configuré
+    console.warn('[Bracket] Série sans bracket_slot — fallback sur premier slot disponible:', series.team1, 'vs', series.team2);
     const partialSeries = state.series.find(s =>
       s.round === nextRound &&
       s.conference === conf &&
@@ -3070,7 +3153,6 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
     );
 
     if (partialSeries) {
-      // Already has 7 games — just update the team name
       skipNextSeriesRealtime += 1;
       if (partialSeries.team1 === 'À déterminer') {
         await sb.from('series').update({ team1: winnerTeam }).eq('id', partialSeries.id);
@@ -3350,7 +3432,7 @@ function render() {
         `;
     }     
 
-function navTo(p){state.currentPage=p;render();}
+function navTo(p){state.currentPage=p;render();if(p==='admin')setTimeout(_renderAdminSyncStatus,0);}
 
 function toggleTheme() {
   const isLight = document.documentElement.dataset.theme === 'light';
@@ -3405,18 +3487,51 @@ function renderOnboarding() {
         <div style="margin-bottom:20px"><label>Confirme le PIN</label><input id="ob-pin2" class="pin-input" type="password" inputmode="numeric" maxlength="4" placeholder="••••" style="margin-top:5px" onkeydown="if(event.key==='Enter')onboardCreate()"></div>
         <button class="btn btn-primary btn-block" onclick="onboardCreate()">Créer mon profil →</button>
       `:`
-        <div class="player-grid">
-          ${state.players.map(p=>`
-            <button class="player-select-btn ${state.selectedLoginPlayer===p.id?'selected':''}" onclick="state.selectedLoginPlayer='${p.id}';render()">
+        ${state.players.length > 6 ? `
+        <div style="position:relative;margin-bottom:10px">
+          <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none">🔍</span>
+          <input id="ob-search" placeholder="Recherche ton prénom…" autocomplete="off"
+            style="padding-left:34px;margin-top:0"
+            oninput="filterLoginPlayers(this.value)">
+        </div>` : ''}
+        <div class="player-grid" id="ob-player-grid" style="max-height:260px;overflow-y:auto;margin-bottom:4px">
+          ${state.players.slice().sort((a,b)=>a.name.localeCompare(b.name,'fr')).map(p=>`
+            <button class="player-select-btn ${state.selectedLoginPlayer===p.id?'selected':''}"
+              data-name="${p.name.toLowerCase()}"
+              onclick="selectLoginPlayer('${p.id}')">
               ${avatarImg(p, '32px', 'flex-shrink:0')}
               ${p.name}
             </button>`).join('')}
         </div>
-        <div style="margin-bottom:20px"><label>Ton PIN</label><input id="ob-login-pin" class="pin-input" type="password" inputmode="numeric" maxlength="4" placeholder="••••" style="margin-top:5px" onkeydown="if(event.key==='Enter')doLogin()"></div>
+        <div id="ob-no-result" style="display:none;text-align:center;font-size:13px;color:var(--muted);padding:10px 0">Aucun joueur trouvé</div>
+        <div style="margin-bottom:20px;margin-top:12px"><label>Ton PIN</label><input id="ob-login-pin" class="pin-input" type="password" inputmode="numeric" maxlength="4" placeholder="••••" style="margin-top:5px" onkeydown="if(event.key==='Enter')doLogin()"></div>
         <button class="btn btn-primary btn-block" onclick="doLogin()">Connexion →</button>
       `}
     </div>
   </div>`;
+}
+
+function filterLoginPlayers(query) {
+  const q = query.toLowerCase().trim();
+  const btns = document.querySelectorAll('#ob-player-grid .player-select-btn');
+  let visible = 0;
+  btns.forEach(btn => {
+    const name = btn.dataset.name || '';
+    const show = !q || name.includes(q);
+    btn.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const noResult = document.getElementById('ob-no-result');
+  if (noResult) noResult.style.display = visible === 0 ? 'block' : 'none';
+}
+
+function selectLoginPlayer(id) {
+  state.selectedLoginPlayer = id;
+  document.querySelectorAll('#ob-player-grid .player-select-btn').forEach(btn => {
+    btn.classList.toggle('selected', btn.getAttribute('onclick').includes(`'${id}'`));
+  });
+  // Focus PIN
+  setTimeout(() => document.getElementById('ob-login-pin')?.focus(), 50);
 }
 
 // Fichier photo sélectionné pendant l'onboarding (avant création du compte)
@@ -5347,6 +5462,7 @@ function renderAdminCard(s) {
           </div>
           <div id="series-result-display-${sid}">
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800">${s.series_winner} en ${s.series_games}</div>
+            <button class="btn btn-sm btn-block" style="margin-top:8px;font-size:11px;border-color:rgba(61,127,255,0.3);color:#6aa3ff" onclick="forceAdvanceToNextRound('${s.id}','${s.series_winner}')">🔀 Forcer l'avancement au tour suivant</button>
           </div>
           <div id="series-result-edit-${sid}" style="display:none;margin-top:10px">
             <div class="grid2" style="gap:6px;margin-bottom:8px">
@@ -7727,6 +7843,9 @@ async function syncSeriesResults(series, forceSync = false) {
         }).eq('id', series.id);
         try { await sb.rpc('recalculate_points', { p_series_id: series.id }); } catch(e) {}
         await loadSeries();
+        const freshSeries = state.series.find(s => s.id === series.id);
+        if (freshSeries) await autoAdvanceToNextRound(freshSeries, seriesWinner);
+        await loadSeries();
         await loadPredictions();
         computeLeaderboard();
         checkAndShowResultBanner(snapshotBefore);
@@ -7764,6 +7883,7 @@ async function autoSyncGameResults() {
 
   _autoSyncLastRun = new Date();
   _autoSyncCount = totalSynced;
+  _saveSyncState(_autoSyncLastRun.toISOString(), totalSynced, _autoSyncLog);
   _renderAdminSyncStatus();
 }
 
@@ -7803,23 +7923,21 @@ function _renderAdminSyncStatus() {
  */
 function scheduleAutoSync() {
   const now = new Date();
-  let delayMs;
 
-  if (!isAfterResultsTime()) {
-    // Calculer le nombre de ms jusqu'à 12h45 aujourd'hui
-    const target = new Date(now);
-    target.setHours(12, 46, 0, 0);
-    delayMs = target - now;
-    if (delayMs < 0) delayMs = 0;
-    console.log(`[AutoSync] Prochain sync dans ${Math.round(delayMs/60000)} min (à 12h46)`);
-  } else {
-    // On est après 12h45 → re-check dans 1h pour attraper les matchs tardifs
-    delayMs = 60 * 60 * 1000;
+  // Calculer le prochain 12h46 : aujourd'hui si on est avant, demain sinon
+  const target = new Date(now);
+  target.setHours(12, 46, 0, 0);
+  if (target <= now) {
+    // On est déjà passé 12h46 aujourd'hui → viser demain
+    target.setDate(target.getDate() + 1);
   }
+
+  const delayMs = target - now;
+  console.log(`[AutoSync] Prochain sync dans ${Math.round(delayMs/60000)} min (à 12h46)`);
 
   setTimeout(async () => {
     await autoSyncGameResults();
-    scheduleAutoSync(); // re-programmer
+    scheduleAutoSync(); // re-programmer pour le lendemain
   }, delayMs);
 }
 
