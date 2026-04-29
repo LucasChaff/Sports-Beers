@@ -1164,8 +1164,212 @@ let state = {
   mvpPredictions: [],
   championPredictions: [],
   doubleDowns: [],
-  pushStatus: 'off' // 'on' | 'off' | 'denied' | 'unsupported' — mis à jour de façon async, jamais en plein render
+  pushStatus: 'off', // 'on' | 'off' | 'denied' | 'unsupported' — mis à jour de façon async, jamais en plein render
+  // Scores live ESPN : { seriesId: { team1Score, team2Score, gameNumber, period, clock, status } }
+  liveScores: {},
 };
+
+// ── LIVE SCORES ──────────────────────────────────────────────────────
+let _livePollingTimer = null;
+let _livePollingActive = false;
+
+/**
+ * Interroge le scoreboard ESPN d'aujourd'hui pour récupérer les matchs
+ * en cours entre les équipes de nos séries actives.
+ * Retourne un objet { seriesId: { team1Score, team2Score, gameNumber, period, clock, status } }
+ */
+async function fetchLiveScores() {
+  const activeSeries = state.series.filter(s => s.status !== 'finished' && isLocked(s));
+  if (!activeSeries.length) return {};
+
+  const today = new Date();
+  const fmt = d => d.getFullYear().toString()
+    + String(d.getMonth()+1).padStart(2,'0')
+    + String(d.getDate()).padStart(2,'0');
+  // On cherche aussi hier (matchs nocturnes US = matin EU)
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  const dates = [fmt(yesterday), fmt(today)];
+
+  const liveData = {};
+
+  for (const dateStr of dates) {
+    try {
+      const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${dateStr}&limit=50`);
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      for (const ev of (data.events || [])) {
+        const comp = ev.competitions?.[0];
+        if (!comp) continue;
+
+        const statusName = ev.status?.type?.name || '';
+        const completed  = ev.status?.type?.completed === true;
+        // On s'intéresse aux matchs en cours, y compris les pauses entre quarts/mi-temps
+        const LIVE_STATUSES = new Set([
+          'STATUS_IN_PROGRESS',
+          'STATUS_HALFTIME',
+          'STATUS_END_PERIOD',
+          'STATUS_END_QUARTER',
+          'STATUS_END_HALF',
+          'STATUS_OVERTIME',
+          'STATUS_FIRST_HALF',
+          'STATUS_SECOND_HALF',
+        ]);
+        const isInProgress = LIVE_STATUSES.has(statusName)
+          || (ev.status?.type?.state === 'in' && !completed);
+        if (!isInProgress) continue;
+
+        const competitors = comp.competitors || [];
+        const homeC = competitors.find(c => c.homeAway === 'home');
+        const awayC = competitors.find(c => c.homeAway === 'away');
+        if (!homeC || !awayC) continue;
+
+        const homeAbbr = (homeC.team?.abbreviation || '').toUpperCase();
+        const awayAbbr = (awayC.team?.abbreviation || '').toUpperCase();
+
+        // Chercher à quelle série de notre app ce match appartient
+        for (const s of activeSeries) {
+          const a1 = (espnAbbrev(s.team1) || '').toUpperCase();
+          const a2 = (espnAbbrev(s.team2) || '').toUpperCase();
+          if (!a1 || !a2) continue;
+
+          const matches = (homeAbbr === a1 && awayAbbr === a2) || (homeAbbr === a2 && awayAbbr === a1);
+          if (!matches) continue;
+
+          // Déterminer qui est team1 et qui est team2
+          const team1IsHome = homeAbbr === a1;
+          const team1Score = Number(team1IsHome ? homeC.score : awayC.score) || 0;
+          const team2Score = Number(team1IsHome ? awayC.score : homeC.score) || 0;
+
+          // Numéro du match : finishedGames + 1
+          const finishedCount = (state.games[s.id] || []).filter(g => g.status === 'finished').length;
+          const gameNumber = finishedCount + 1;
+
+          // Période / clock
+          const period = ev.status?.period || 0;
+          const clock  = ev.status?.displayClock || '';
+          const periodLabel = period > 4 ? `OT${period - 4}` : `Q${period}`;
+
+          liveData[s.id] = { team1Score, team2Score, gameNumber, period, clock, periodLabel, espnId: ev.id };
+          break;
+        }
+      }
+    } catch(e) { /* réseau indispo, on ignore */ }
+  }
+
+  return liveData;
+}
+
+async function refreshLiveScores() {
+  const live = await fetchLiveScores();
+  const hadLive = Object.keys(state.liveScores).length > 0;
+  const hasLive = Object.keys(live).length > 0;
+  state.liveScores = live;
+
+  // Re-render uniquement les zones concernées sans full render
+  _patchLiveUI();
+
+  // Démarrer ou arrêter le polling selon qu'il y a des matchs live
+  if (hasLive && !_livePollingActive) {
+    _startLivePolling();
+  } else if (!hasLive && _livePollingActive) {
+    _stopLivePolling();
+    // Si on vient de perdre le live → render complet pour nettoyer
+    if (hadLive) render();
+  }
+}
+
+function _startLivePolling() {
+  if (_livePollingActive) return;
+  _livePollingActive = true;
+  _livePollingTimer = setInterval(refreshLiveScores, 30000); // toutes les 30s
+  console.log('[Live] Polling démarré');
+}
+
+function _stopLivePolling() {
+  _livePollingActive = false;
+  if (_livePollingTimer) { clearInterval(_livePollingTimer); _livePollingTimer = null; }
+  console.log('[Live] Polling arrêté');
+}
+
+/**
+ * Patch direct du DOM pour les zones live sans re-render complet.
+ * Met à jour : score live dans séries, flèches+delta dans leaderboard, footer bracket.
+ */
+function _patchLiveUI() {
+  // Patch scores live dans les cards de séries
+  for (const [sid, live] of Object.entries(state.liveScores)) {
+    const el = document.getElementById(`live-score-${sid}`);
+    if (el) el.innerHTML = _liveScoreHTML(sid, live);
+  }
+
+  // Patch leaderboard delta (si on est sur la page leaderboard)
+  const lbProjEl = document.getElementById('lb-live-projection');
+  if (lbProjEl) lbProjEl.outerHTML = _renderLeaderboardWithLive();
+  else {
+    // Si le DOM n'a pas encore le slot, on fait un render complet (première fois)
+    if (state.currentPage === 'leaderboard' && Object.keys(state.liveScores).length > 0) render();
+  }
+
+  // Patch footers du bracket (si on est sur la page bracket)
+  if (state.currentPage === 'bracket') {
+    for (const [sid, live] of Object.entries(state.liveScores)) {
+      const el = document.getElementById(`bk-footer-${sid}`);
+      if (!el) continue;
+      const ls1 = live.team1Score;
+      const ls2 = live.team2Score;
+      const lsLabel = live.periodLabel || '';
+      const lsClock = live.clock || '';
+      el.innerHTML = `<div class="bk-match-footer live-dot" style="padding:5px 8px;line-height:1.4">
+        <span style="font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.02em;color:var(--amber)">${ls1} – ${ls2}</span>
+        <span style="color:var(--muted);font-size:9px;margin-left:4px">${lsLabel}${lsClock ? ' ' + lsClock : ''}</span>
+      </div>`;
+    }
+  }
+}
+
+/**
+ * Calcule pour chaque joueur le delta de points projeté si le score live
+ * était le résultat final du match en cours.
+ * Retourne { playerId: { pts: number, hasPred: bool } }
+ */
+function computeLiveDelta() {
+  const delta = {};
+  state.players.forEach(p => { delta[p.id] = { pts: 0, hasPred: false }; });
+
+  for (const [sid, live] of Object.entries(state.liveScores)) {
+    const s = state.series.find(x => x.id === sid);
+    if (!s) continue;
+
+    // Vainqueur projeté selon le score live actuel
+    const projectedWinner = live.team1Score > live.team2Score ? s.team1
+      : live.team2Score > live.team1Score ? s.team2 : null;
+    if (!projectedWinner) continue;
+
+    const roundPoints = getRoundPoints(s.round);
+    const ptsMW = roundPoints.match;
+
+    state.predictions.forEach(pred => {
+      if (pred.series_id !== sid) return;
+      if (delta[pred.player_id] === undefined) return;
+
+      const gamePreds = Array.isArray(pred.game_predictions) ? pred.game_predictions : [];
+      const gp = gamePreds.find(x => Number(x.game_number) === Number(live.gameNumber));
+      if (!gp) return;
+
+      // Ce joueur a un pronostic pour ce match (même si mauvais)
+      delta[pred.player_id].hasPred = true;
+
+      // Ce joueur avait-il prédit le bon vainqueur pour ce match ?
+      if (gp.predicted_winner === projectedWinner) {
+        const dd = state.doubleDowns.find(d => d.player_id === pred.player_id && d.series_id === sid);
+        delta[pred.player_id].pts += dd ? ptsMW * 2 : ptsMW;
+      }
+    });
+  }
+
+  return delta;
+}
 
 // Temp state for in-progress predictions (survives re-renders)
 const predTemp = {};
@@ -1201,6 +1405,13 @@ async function init() {
     else state.currentPlayer = still; // refresh data
   }
   render();
+  // Lancer la synchronisation automatique des résultats ESPN
+  setTimeout(async () => {
+    await autoSyncGameResults();
+    scheduleAutoSync();
+  }, 3000); // petit délai pour laisser l'UI se rendre en premier
+  // Démarrer le polling des scores live (après 5s)
+  setTimeout(refreshLiveScores, 5000);
 }
 
 async function loadAll() {
@@ -3025,7 +3236,8 @@ function buildLeaderboardTimeline() {
         const awardKey = `${pred.player_id}::${keyBase}`;
         if (awardedGamePoints.has(awardKey)) return;
 
-        totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsMW;
+        const dd = state.doubleDowns.find(d => d.player_id === pred.player_id && d.series_id === g.series_id);
+        totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsMW * (dd ? 2 : 1);
         awardedGamePoints.add(awardKey);
       });
 
@@ -3043,12 +3255,14 @@ function buildLeaderboardTimeline() {
         .forEach(pred => {
           const winKey = `${pred.player_id}::${s.id}::winner`;
           const exactKey = `${pred.player_id}::${s.id}::exact`;
+          const dd = state.doubleDowns.find(d => d.player_id === pred.player_id && d.series_id === s.id);
+          const mult = dd ? 2 : 1;
 
           if (
             pred.predicted_series_winner === s.series_winner &&
             !awardedSeriesWinnerPoints.has(winKey)
           ) {
-            totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsSW;
+            totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsSW * mult;
             awardedSeriesWinnerPoints.add(winKey);
           }
 
@@ -3057,7 +3271,7 @@ function buildLeaderboardTimeline() {
             Number(pred.predicted_series_games) === Number(s.series_games) &&
             !awardedSeriesExactPoints.has(exactKey)
           ) {
-            totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsSE;
+            totals[pred.player_id] = (totals[pred.player_id] || 0) + ptsSE * mult;
             awardedSeriesExactPoints.add(exactKey);
           }
         });
@@ -3275,6 +3489,105 @@ const CHART_PALETTE = [
   '#fb923c','#f472b6','#4ade80','#60a5fa','#fbbf24','#f87171',
 ];
 
+function _liveScoreHTML(seriesId, live) {
+  const s = state.series.find(x => x.id === seriesId);
+  if (!s || !live) return '';
+  return `
+    <div style="display:flex;align-items:center;gap:8px;background:rgba(245,158,11,0.08);
+                border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:7px 10px;margin-top:8px">
+      <span style="display:inline-block;width:7px;height:7px;border-radius:50%;
+                   background:var(--amber);animation:pulse 1.4s infinite;flex-shrink:0"></span>
+      <span style="font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;
+                   letter-spacing:0.06em;flex-shrink:0">Live · M${live.gameNumber}</span>
+      <span style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;color:var(--text)">
+        ${live.team1Score}
+      </span>
+      <span style="font-size:12px;color:var(--muted);font-weight:700">–</span>
+      <span style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;color:var(--text)">
+        ${live.team2Score}
+      </span>
+      <span style="font-size:11px;color:var(--muted);margin-left:4px">${live.periodLabel} · ${live.clock}</span>
+    </div>`;
+}
+
+function _renderLeaderboardWithLive() {
+  const lb = state.leaderboard;
+  if (!lb.length) return '<div id="lb-live-projection"></div>';
+  const hasLive = Object.keys(state.liveScores).length > 0;
+  if (!hasLive) return '<div id="lb-live-projection"></div>';
+
+  const delta = computeLiveDelta();
+  // Calculer le classement projeté
+  const projected = lb.map(p => ({
+    ...p,
+    proj_total: p.total_points + (delta[p.id]?.pts || 0),
+    delta: delta[p.id]?.pts || 0,
+    hasPred: delta[p.id]?.hasPred || false,
+  })).sort((a, b) => b.proj_total - a.proj_total);
+
+  // Calculer le mouvement de rang
+  const currentRanks = {};
+  lb.forEach((p, i) => { currentRanks[p.id] = i; });
+  const projRanks = {};
+  projected.forEach((p, i) => { projRanks[p.id] = i; });
+
+  // Construire le badge LIVE avec le nom du match
+  const liveSeriesNames = Object.entries(state.liveScores).map(([sid, live]) => {
+    const s = state.series.find(x => x.id === sid);
+    return s ? `${shortTeamName(s.team1)} ${live.team1Score} – ${live.team2Score} ${shortTeamName(s.team2)} · M${live.gameNumber} · ${live.periodLabel} ${live.clock}` : '';
+  }).filter(Boolean).join(' · ');
+
+  const cp = state.currentPlayer;
+
+  return `<div id="lb-live-projection">
+    <div class="section-label" style="color:var(--amber)">
+      <span style="display:inline-block;width:7px;height:7px;border-radius:50%;
+                   background:var(--amber);animation:pulse 1.4s infinite;margin-right:6px;vertical-align:middle"></span>
+      Projection live
+    </div>
+    <div class="card" style="border-color:rgba(245,158,11,0.25);background:rgba(245,158,11,0.04)">
+      <div style="font-size:11px;color:var(--amber);font-weight:600;margin-bottom:10px;
+                  display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        🏀 ${liveSeriesNames}
+      </div>
+      ${projected.map((p, projRank) => {
+        const currRank = currentRanks[p.id];
+        const rankMove = currRank - projRank; // positif = monte
+        const arrow = rankMove > 0 ? '↑' : rankMove < 0 ? '↓' : '–';
+        const arrowColor = rankMove > 0 ? 'var(--green)' : rankMove < 0 ? 'var(--red)' : 'var(--muted)';
+        const deltaStr = p.delta > 0 ? `+${p.delta}` : p.delta < 0 ? `${p.delta}` : '';
+        const isMe = p.id === cp?.id;
+
+        return `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;
+                    border-bottom:1px solid var(--border);
+                    ${isMe ? 'background:rgba(232,66,42,0.05);margin:0 -16px;padding:8px 16px;' : ''}">
+          <span style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;
+                       min-width:22px;text-align:center;color:var(--muted)">${projRank + 1}</span>
+          <span style="font-size:15px;font-weight:700;color:${arrowColor};min-width:14px;text-align:center">${arrow}</span>
+          ${avatarImg(p, '32px')}
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:600">${p.name}${isMe ? ' <span style="font-size:10px;color:var(--accent)">toi</span>' : ''}</div>
+            ${p.delta > 0
+              ? `<div style="font-size:11px;color:var(--green);font-weight:700">+${p.delta} pt${p.delta > 1 ? 's' : ''} projetés</div>`
+              : p.hasPred
+                ? `<div style="font-size:11px;color:var(--muted)">mauvais pronostic sur ce(s) match(s)</div>`
+                : `<div style="font-size:11px;color:var(--muted)">pas de pronostic sur ce(s) match(s)</div>`
+            }
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900">${p.proj_total}</div>
+            <div style="font-size:10px;color:var(--muted)">pts proj.</div>
+          </div>
+        </div>`;
+      }).join('')}
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:center">
+        Projection si le score actuel est le résultat final · mis à jour toutes les 30s
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderLeaderboard() {
   const lb=state.leaderboard;
   if(!lb.length) return `<div class="empty"><span class="empty-icon">🏆</span>Personne n'a encore pronostiqué !</div>`;
@@ -3287,7 +3600,7 @@ function renderLeaderboard() {
       <div class="lb-podium-inner">
         ${avatarImg(first, '52px', 'border:2px solid var(--gold);box-shadow:0 0 20px rgba(245,197,24,0.3);')}
         <div>
-          <div class="lb-podium-name">${first.name}${first.id===cp?.id?' <span style="font-size:12px;color:var(--accent);font-family:Barlow,sans-serif;font-weight:600;text-transform:none">toi</span>':''}</div>
+          <div class="lb-podium-name">${first.name}${first.id===cp?.id?' <span style="font-size:12px;color:var(--accent);font-family:Barlow,sans-serif;font-weight:600;text-transform:none">toi</span>':''}${_trendArrow(first.id, 1)}</div>
           <div class="lb-podium-sub">${first.correct_games} bonne(s) prédiction(s) sur ${first.total_games_predicted} matchs · <span style="color:var(--accent)">Voir profil →</span></div>
         </div>
         <div style="text-align:right">
@@ -3301,7 +3614,7 @@ function renderLeaderboard() {
         <span class="lb-rank-num">${i+2}</span>
         ${avatarImg(p, '36px')}
         <div>
-          <div class="lb-name">${p.name}${p.id===cp?.id?' <span style="font-size:10px;color:var(--accent)">toi</span>':''}</div>
+          <div class="lb-name">${p.name}${p.id===cp?.id?' <span style="font-size:10px;color:var(--accent)">toi</span>':''}${_trendArrow(p.id, i+2)}</div>
           <div style="font-size:11px;color:var(--muted)">${p.correct_games} bonne(s) sur ${p.total_games_predicted} matchs</div>
         </div>
         <div style="text-align:right">
@@ -3309,6 +3622,7 @@ function renderLeaderboard() {
           <div class="lb-pts-lbl">pts</div>
         </div>
       </div>`).join('')}</div>`:''}
+    ${_renderLeaderboardWithLive()}
     <div class="section-label">Détail des points</div>
     <div class="card" style="overflow-x:auto">
       <table class="detail-table">
@@ -3344,7 +3658,11 @@ function renderLeaderboard() {
 function renderPredictions() {
   if(!state.series.length) return `<div class="empty"><span class="empty-icon">📋</span>Aucune série disponible.<br>L'admin doit les ajouter.</div>`;
   const ROUND_ORDER = ['Premier tour','Demi-finales','Finales de conférence','Finales NBA'];
-  const activeSeries = state.series.filter(s => s.status !== 'finished');
+  const activeSeries = state.series.filter(s =>
+    s.status !== 'finished' &&
+    s.team1 && s.team1 !== 'À déterminer' &&
+    s.team2 && s.team2 !== 'À déterminer'
+  );
   if (!activeSeries.length) return `<div class="empty"><span class="empty-icon">✅</span>Toutes les séries sont terminées.<br>Consulte l'onglet Séries pour les résultats.</div>`;
   const rounds = [...new Set(activeSeries.map(s => s.round))].sort((a,b) => ROUND_ORDER.indexOf(a) - ROUND_ORDER.indexOf(b));
   return rounds.map(r => {
@@ -4310,7 +4628,11 @@ function renderSeriesPageInner() {
                   ? `<span class="badge badge-amber">🔒 À venir</span>`
                   : `<span class="badge badge-gray">À venir</span>`}
             </div>`).join('')}
-        </div>` : '';
+          ${(() => {
+            const live = state.liveScores[s.id];
+            return live ? `<div id="live-score-${s.id}">${_liveScoreHTML(s.id, live)}</div>` : `<div id="live-score-${s.id}"></div>`;
+          })()}
+        </div>` : `<div id="live-score-${s.id}">${state.liveScores[s.id] ? _liveScoreHTML(s.id, state.liveScores[s.id]) : ''}</div>`;
 
       return `<div class="card" style="margin-top:8px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -4561,6 +4883,31 @@ function renderAdminCard(s) {
   </div>`;
 }
 
+async function adminManualSync() {
+  const btn = document.querySelector('[onclick="adminManualSync()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
+
+  let totalSynced = 0;
+  for (const series of state.series) {
+    // forceSync = true : vide le cache ESPN pour retenter même ce qui a déjà été cherché
+    totalSynced += await syncSeriesResults(series, true);
+  }
+
+  _autoSyncLastRun = new Date();
+  _autoSyncCount = totalSynced;
+
+  if (totalSynced > 0) {
+    computeLeaderboard();
+    render();
+    toast(`✅ ${totalSynced} résultat(s) synchronisé(s) depuis ESPN`);
+  } else {
+    toast('🔍 Aucun nouveau résultat trouvé sur ESPN');
+  }
+
+  _renderAdminSyncStatus();
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync maintenant'; }
+}
+
 async function doAddSeries() {
   const t1=document.getElementById('a-t1').value.trim(),t2=document.getElementById('a-t2').value.trim();
   const round=document.getElementById('a-round').value,conf=document.getElementById('a-conf').value;
@@ -4668,6 +5015,29 @@ async function doUpdateSeriesStartTime(seriesId, sid) {
 
 function renderAdminSeries() {
   return `
+    <div class="section-label">🤖 Sync automatique ESPN</div>
+    <div class="card" style="margin-bottom:4px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:600">Mise à jour automatique des résultats</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">
+            Récupère les vainqueurs depuis ESPN · S'active à partir de <strong>12h45</strong> chaque jour
+          </div>
+          <div style="font-size:11px;margin-top:5px" id="admin-sync-status">
+            <span style="color:var(--muted)">Jamais exécuté</span>
+          </div>
+        </div>
+        <button class="btn btn-sm" onclick="adminManualSync()" style="flex-shrink:0">
+          🔄 Sync maintenant
+        </button>
+      </div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)">
+        ${isAfterResultsTime()
+          ? `✅ Il est ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})} — le sync automatique est actif`
+          : `⏳ Il est ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})} — le sync automatique se déclenchera à 12h45 (anti-spoiler)`
+        }
+      </div>
+    </div>
     <div class="section-label">Nouvelle série</div>
     <div class="card">
       <div class="grid2" style="margin-bottom:8px">
@@ -4935,7 +5305,20 @@ function bkMatchCard(series) {
   if (isFinished) {
     footer = `<div class="bk-match-footer">✓ Terminé</div>`;
   } else if (isLive) {
-    footer = `<div class="bk-match-footer live-dot">En cours</div>`;
+    // Chercher un score live ESPN pour cette série
+    const liveScore = state.liveScores[series.id];
+    if (liveScore) {
+      const ls1 = liveScore.team1Score;
+      const ls2 = liveScore.team2Score;
+      const lsLabel = liveScore.periodLabel || '';
+      const lsClock = liveScore.clock || '';
+      footer = `<div class="bk-match-footer live-dot" style="padding:5px 8px;line-height:1.4">
+        <span style="font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.02em;color:var(--amber)">${ls1} – ${ls2}</span>
+        <span style="color:var(--muted);font-size:9px;margin-left:4px">${lsLabel}${lsClock ? ' ' + lsClock : ''}</span>
+      </div>`;
+    } else {
+      footer = `<div class="bk-match-footer live-dot">En cours</div>`;
+    }
   } else if (series.start_time) {
     const d = new Date(series.start_time);
     const label = d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
@@ -4949,11 +5332,12 @@ function bkMatchCard(series) {
   const s2 = showScore ? score2 : null;
   const clickable = finishedGames.length > 0;
 
+  // footer est déjà une div complète — on l'identifie via un wrapper
   return `<div class="bk-match ${isFinished ? 'finished' : isLive ? 'live' : ''}${clickable ? ' bk-match-clickable' : ''}"
     ${clickable ? `onclick="openSeriesStats('${series.id}','${series.team1}','${series.team2}')" title="Voir les stats ESPN"` : ''}>
     ${bkTeamRow(series.team1, s1, t1Win, t1Lose)}
     ${bkTeamRow(series.team2, s2, t2Win, t2Lose)}
-    ${footer}
+    <span id="bk-footer-${series.id}">${footer}</span>
   </div>`;
 }
 
@@ -6180,6 +6564,73 @@ async function findEspnEventsForSeries(seriesId, team1, team2, seriesStartTime) 
   return result;
 }
 
+/**
+ * Variante pour le sync auto : cherche tous les matchs ESPN de la série
+ * (passés et jusqu'à aujourd'hui), sans se limiter aux finishedGames déjà enregistrés.
+ * Associe les espnIds aux game_number de tous les matchs de la série dans l'ordre.
+ */
+async function findEspnEventsForSeriesSync(seriesId, team1, team2, seriesStartTime) {
+  if (!seriesStartTime) return [];
+
+  const abbr1 = espnAbbrev(team1);
+  const abbr2 = espnAbbrev(team2);
+  if (!abbr1 || !abbr2) return [];
+
+  const allGames = (state.games[seriesId] || []).sort((a, b) => a.game_number - b.game_number);
+  if (!allGames.length) return [];
+
+  const startD = new Date(seriesStartTime);
+  // On cherche jusqu'à aujourd'hui (pas besoin d'aller plus loin)
+  const endD = new Date(Math.min(Date.now(), startD.getTime() + 42 * 86400000));
+
+  const fmt = d => d.getFullYear().toString()
+    + String(d.getMonth()+1).padStart(2,'0')
+    + String(d.getDate()).padStart(2,'0');
+
+  const matched = [];
+  const seen = new Set();
+
+  const chunkDays = 14;
+  const cursor = new Date(startD);
+  cursor.setDate(cursor.getDate() - 1);
+
+  while (cursor <= endD) {
+    const from = new Date(cursor);
+    const to = new Date(Math.min(cursor.getTime() + chunkDays * 86400000, endD.getTime()));
+    const rangeStr = `${fmt(from)}-${fmt(to)}`;
+
+    try {
+      const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${rangeStr}&limit=100`);
+      if (res.ok) {
+        const data = await res.json();
+        for (const ev of (data.events || [])) {
+          if (seen.has(ev.id)) continue;
+          const comp = ev.competitions?.[0];
+          if (!comp) continue;
+          const abbrs = (comp.competitors || []).map(c => (c.team?.abbreviation || '').toUpperCase());
+          if (abbrs.includes(abbr1.toUpperCase()) && abbrs.includes(abbr2.toUpperCase())) {
+            const evDate = ev.date ? new Date(ev.date) : null;
+            if (evDate) {
+              seen.add(ev.id);
+              matched.push({ date: evDate, espnId: ev.id });
+            }
+          }
+        }
+      }
+    } catch(e) { /* continue */ }
+
+    cursor.setDate(cursor.getDate() + chunkDays + 1);
+  }
+
+  matched.sort((a, b) => a.date - b.date);
+
+  // Associer chaque match ESPN (dans l'ordre chronologique) au game_number correspondant
+  return allGames.map((g, i) => ({
+    gameNumber: g.game_number,
+    espnId: matched[i]?.espnId || null,
+  })).filter(x => x.espnId);
+}
+
 async function findEspnEventId(gameId, team1, team2, startTime) {
   // Legacy – not used for series navigation, kept for compatibility
   if (!startTime) return null;
@@ -6518,6 +6969,260 @@ async function openGameStats(gameId, team1, team2, gameNumber) {
     return;
   }
   toast('Série introuvable');
+}
+
+// ══════════════════════════════════════════════════
+// LEADERBOARD SNAPSHOT (dynamique post-sync)
+// ══════════════════════════════════════════════════
+
+const LB_SNAPSHOT_KEY = 'nba26_lb_snapshot';
+
+/**
+ * Sauvegarde le classement actuel en localStorage (appelé après chaque sync).
+ * Format : { [playerId]: rank }
+ */
+function _saveLeaderboardSnapshot() {
+  try {
+    const ranks = {};
+    state.leaderboard.forEach((p, i) => { ranks[p.id] = i + 1; });
+    localStorage.setItem(LB_SNAPSHOT_KEY, JSON.stringify({ ranks, ts: Date.now() }));
+  } catch(e) {}
+}
+
+/**
+ * Lit le snapshot sauvegardé.
+ * Retourne { ranks: {playerId: rank}, ts } ou null.
+ */
+function _loadLeaderboardSnapshot() {
+  try {
+    const raw = localStorage.getItem(LB_SNAPSHOT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+}
+
+/**
+ * Retourne l'indicateur de tendance pour un joueur donné.
+ * ↑ vert si monté, ↓ rouge si descendu, = gris si stable.
+ */
+function _trendArrow(playerId, currentRank) {
+  const snap = _loadLeaderboardSnapshot();
+  if (!snap || !snap.ranks) return '';
+  const prevRank = snap.ranks[playerId];
+  if (prevRank === undefined) return '';
+  const diff = prevRank - currentRank; // positif = monté
+  if (diff > 0) return `<span style="font-size:13px;color:var(--green);font-weight:800;margin-left:4px" title="Monté de ${diff} place(s) depuis le dernier sync">↑</span>`;
+  if (diff < 0) return `<span style="font-size:13px;color:var(--red);font-weight:800;margin-left:4px" title="Descendu de ${Math.abs(diff)} place(s) depuis le dernier sync">↓</span>`;
+  return `<span style="font-size:13px;color:var(--muted);font-weight:700;margin-left:4px" title="Stable depuis le dernier sync">=</span>`;
+}
+
+// ══════════════════════════════════════════════════
+// AUTO-SYNC RÉSULTATS ESPN (12h45 lock anti-spoiler)
+// ══════════════════════════════════════════════════
+
+/**
+ * Vérifie s'il est 12h45 ou plus en heure locale.
+ */
+function isAfterResultsTime() {
+  const now = new Date();
+  return now.getHours() > 12 || (now.getHours() === 12 && now.getMinutes() >= 45);
+}
+
+/**
+ * Interroge ESPN pour un espnId donné et retourne le vainqueur (team1 ou team2)
+ * si le match est officiellement terminé, sinon null.
+ */
+async function fetchEspnGameWinner(espnId, team1, team2) {
+  try {
+    const res = await fetch(`https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${espnId}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    const headerComp = data.header?.competitions?.[0];
+    if (!headerComp) return null;
+
+    // Match terminé ?
+    const completed = headerComp.status?.type?.completed === true
+      || ['STATUS_FINAL', 'final'].includes(headerComp.status?.type?.name || '');
+    if (!completed) return null;
+
+    const homeTeam = headerComp.competitors?.find(c => c.homeAway === 'home');
+    const awayTeam = headerComp.competitors?.find(c => c.homeAway === 'away');
+    if (!homeTeam || !awayTeam) return null;
+
+    const homeScore = Number(homeTeam.score || 0);
+    const awayScore = Number(awayTeam.score || 0);
+    if (homeScore === 0 && awayScore === 0) return null;
+
+    // Identifier le vainqueur ESPN par son abréviation
+    const winnerIsHome = homeScore > awayScore;
+    const winnerAbbr = ((winnerIsHome ? homeTeam : awayTeam).team?.abbreviation || '').toUpperCase();
+
+    // Faire correspondre avec team1 ou team2 via ESPN_ABBREV
+    const abbr1 = (espnAbbrev(team1) || '').toUpperCase();
+    const abbr2 = (espnAbbrev(team2) || '').toUpperCase();
+    if (abbr1 && winnerAbbr === abbr1) return team1;
+    if (abbr2 && winnerAbbr === abbr2) return team2;
+
+    // Fallback : correspondance par nom court ESPN
+    const winnerShort = ((winnerIsHome ? homeTeam : awayTeam).team?.shortDisplayName || '').toLowerCase();
+    if (winnerShort && team1.toLowerCase().includes(winnerShort)) return team1;
+    if (winnerShort && team2.toLowerCase().includes(winnerShort)) return team2;
+
+    return null;
+  } catch(e) {
+    return null;
+  }
+}
+
+/**
+ * Cœur du sync pour une série donnée.
+ * Utilise findEspnEventsForSeries (qui se base sur series.start_time, pas sur les matchs)
+ * pour récupérer tous les espnId des matchs joués, puis vérifie lesquels sont terminés
+ * mais pas encore enregistrés dans Supabase.
+ * Retourne le nombre de matchs synchronisés.
+ */
+async function syncSeriesResults(series, forceSync = false) {
+  if (!series.start_time) return 0; // impossible de chercher sans date de début de série
+  if (series.status === 'finished') return 0;
+
+  const games = state.games[series.id] || [];
+  const pendingGames = games.filter(g => g.status !== 'finished');
+  if (!pendingGames.length) return 0;
+
+  // Vider le cache ESPN pour cette série pour forcer une nouvelle recherche
+  if (forceSync) delete _espnSeriesCache[series.id];
+
+  // findEspnEventsForSeriesSync cherche TOUS les matchs ESPN entre les deux équipes
+  // depuis le début de la série jusqu'à aujourd'hui, sans se limiter aux finishedGames
+  const espnEvents = await findEspnEventsForSeriesSync(series.id, series.team1, series.team2, series.start_time);
+  if (!espnEvents.length) return 0;
+
+  let syncCount = 0;
+
+  for (const { gameNumber, espnId } of espnEvents) {
+    // Trouver le match local correspondant
+    const game = games.find(g => g.game_number === gameNumber);
+    if (!game || game.status === 'finished') continue;
+
+    const winner = await fetchEspnGameWinner(espnId, series.team1, series.team2);
+    if (!winner) continue;
+
+    // Enregistrer dans Supabase
+    const { error } = await sb.from('games').update({
+      winner,
+      status: 'finished',
+      updated_at: new Date().toISOString()
+    }).eq('id', game.id);
+
+    if (error) {
+      console.error('[AutoSync] Erreur Supabase:', error);
+      continue;
+    }
+
+    syncCount++;
+    console.log(`[AutoSync] ✅ ${series.team1} vs ${series.team2} — Match ${gameNumber} → ${winner}`);
+  }
+
+  if (syncCount > 0) {
+    // Recharger et vérifier si la série est désormais terminée
+    await loadSeries();
+    const updated = state.series.find(s => s.id === series.id);
+    if (updated && updated.status !== 'finished') {
+      const allGames = state.games[series.id] || [];
+      let w1 = 0, w2 = 0;
+      allGames.filter(g => g.status === 'finished').forEach(g => {
+        if (g.winner === series.team1) w1++;
+        else if (g.winner === series.team2) w2++;
+      });
+      const seriesWinner = w1 >= 4 ? series.team1 : w2 >= 4 ? series.team2 : null;
+      const seriesGamesCount = seriesWinner ? w1 + w2 : null;
+      if (seriesWinner) {
+        const snapshotBefore = new Set(state.series.filter(s => s.status === 'finished').map(s => s.id));
+        await sb.from('series').update({
+          series_winner: seriesWinner,
+          series_games: seriesGamesCount,
+          status: 'finished',
+          updated_at: new Date().toISOString()
+        }).eq('id', series.id);
+        try { await sb.rpc('recalculate_points', { p_series_id: series.id }); } catch(e) {}
+        await loadSeries();
+        await loadPredictions();
+        computeLeaderboard();
+        checkAndShowResultBanner(snapshotBefore);
+        console.log(`[AutoSync] 🏆 Série terminée : ${seriesWinner} en ${seriesGamesCount}`);
+      }
+    }
+  }
+
+  return syncCount;
+}
+
+/**
+ * Routine principale automatique.
+ * Ne s'exécute qu'à partir de 12h45 (heure locale) — anti-spoiler.
+ */
+async function autoSyncGameResults() {
+  if (!isAfterResultsTime()) {
+    console.log('[AutoSync] Avant 12h45 — en attente');
+    return;
+  }
+
+  let totalSynced = 0;
+  for (const series of state.series) {
+    totalSynced += await syncSeriesResults(series);
+  }
+
+  if (totalSynced > 0) {
+    computeLeaderboard();
+    // Sauvegarder le snapshot de classement post-sync pour les flèches de dynamique
+    _saveLeaderboardSnapshot();
+    render();
+    console.log(`[AutoSync] ${totalSynced} résultat(s) synchronisé(s)`);
+  }
+
+  _autoSyncLastRun = new Date();
+  _autoSyncCount = totalSynced;
+  _renderAdminSyncStatus();
+}
+
+let _autoSyncLastRun = null;
+let _autoSyncCount = 0;
+
+function _renderAdminSyncStatus() {
+  const el = document.getElementById('admin-sync-status');
+  if (!el) return;
+  if (!_autoSyncLastRun) {
+    el.innerHTML = `<span style="color:var(--muted)">Jamais exécuté</span>`;
+    return;
+  }
+  const t = _autoSyncLastRun.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  el.innerHTML = `<span style="color:var(--green)">✓ Dernier sync : ${t}</span>${_autoSyncCount > 0 ? ` <span style="color:var(--blue)">(${_autoSyncCount} résultat${_autoSyncCount > 1 ? 's' : ''} ajouté${_autoSyncCount > 1 ? 's' : ''})</span>` : ''}`;
+}
+
+/**
+ * Lance le sync et programme la prochaine exécution à 12h46 le lendemain
+ * si on est avant 12h45, ou dans 1h si on est déjà après 12h45.
+ */
+function scheduleAutoSync() {
+  const now = new Date();
+  let delayMs;
+
+  if (!isAfterResultsTime()) {
+    // Calculer le nombre de ms jusqu'à 12h45 aujourd'hui
+    const target = new Date(now);
+    target.setHours(12, 46, 0, 0);
+    delayMs = target - now;
+    if (delayMs < 0) delayMs = 0;
+    console.log(`[AutoSync] Prochain sync dans ${Math.round(delayMs/60000)} min (à 12h46)`);
+  } else {
+    // On est après 12h45 → re-check dans 1h pour attraper les matchs tardifs
+    delayMs = 60 * 60 * 1000;
+  }
+
+  setTimeout(async () => {
+    await autoSyncGameResults();
+    scheduleAutoSync(); // re-programmer
+  }, delayMs);
 }
 
 init();
