@@ -1016,6 +1016,90 @@ label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:upperc
 .profile-section-hd::after{content:'';flex:1;height:1px;background:var(--border)}
 
 
+/* ══ LEAGUES ══════════════════════════════════════════ */
+.league-switcher{
+  display:flex;gap:6px;padding:10px 12px 0;overflow-x:auto;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;
+}
+.league-switcher::-webkit-scrollbar{display:none}
+.league-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 12px;border-radius:999px;border:1.5px solid var(--border2);
+  background:rgba(255,255,255,0.04);color:var(--muted);
+  font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer;
+  transition:all .18s;flex-shrink:0;
+}
+.league-chip:hover{border-color:rgba(255,255,255,0.2);color:var(--text)}
+.league-chip.active{
+  background:rgba(61,127,255,0.15);border-color:var(--blue);color:#9ec4ff;
+}
+.league-chip.global.active{
+  background:rgba(232,66,42,0.15);border-color:var(--accent);color:var(--accent2);
+}
+.league-chip-badge{
+  background:rgba(255,255,255,0.15);border-radius:999px;
+  padding:1px 6px;font-size:10px;font-weight:800;
+}
+
+.league-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.78);
+  z-index:200;display:flex;align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(8px);animation:fadeIn .2s ease;
+}
+.league-sheet{
+  width:100%;max-width:480px;
+  background:var(--card2);border-radius:24px 24px 0 0;
+  border-top:1px solid var(--border2);
+  padding:0 0 40px;max-height:92vh;overflow-y:auto;
+}
+.league-sheet-handle{
+  width:40px;height:4px;border-radius:2px;
+  background:var(--border2);margin:12px auto 0;
+}
+.league-sheet-header{
+  padding:16px 20px 14px;border-bottom:1px solid var(--border);
+}
+.league-sheet-title{
+  font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;
+  text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px;
+}
+.league-sheet-title em{color:var(--blue);font-style:normal}
+.league-sheet-sub{font-size:12px;color:var(--muted)}
+
+.league-card{
+  margin:10px 12px 0;
+  background:var(--card);border:1px solid var(--border);
+  border-radius:16px;padding:14px 16px;
+  display:flex;align-items:center;gap:12px;
+  cursor:pointer;transition:all .18s;
+}
+.league-card:hover{border-color:var(--border2);transform:translateY(-1px)}
+.league-card.active-card{border-color:var(--blue);background:rgba(61,127,255,0.06)}
+.league-card-icon{
+  width:40px;height:40px;border-radius:12px;flex-shrink:0;
+  background:rgba(61,127,255,0.15);border:1px solid rgba(61,127,255,0.25);
+  display:flex;align-items:center;justify-content:center;font-size:18px;
+}
+.league-card-name{
+  font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;
+  text-transform:uppercase;letter-spacing:0.03em;line-height:1;
+}
+.league-card-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.league-card-code{
+  margin-left:auto;font-family:'DM Mono',monospace;font-size:11px;
+  background:rgba(255,255,255,0.06);border:1px solid var(--border2);
+  border-radius:8px;padding:3px 8px;color:var(--muted);flex-shrink:0;
+  letter-spacing:0.06em;
+}
+
+.league-form-section{padding:16px 16px 0}
+.league-form-section-title{
+  font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:800;
+  letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);
+  margin-bottom:12px;display:flex;align-items:center;gap:8px;
+}
+.league-form-section-title::after{content:'';flex:1;height:1px;background:var(--border)}
+
 /* ══ BRACKET ══════════════════════════════════════════ */
 .bracket-wrap{
   overflow-x:auto;padding:16px 12px 24px;
@@ -1167,6 +1251,10 @@ let state = {
   pushStatus: 'off', // 'on' | 'off' | 'denied' | 'unsupported' — mis à jour de façon async, jamais en plein render
   // Scores live ESPN : { seriesId: { team1Score, team2Score, gameNumber, period, clock, status } }
   liveScores: {},
+  // Leagues
+  leagues: [],          // toutes les leagues
+  leagueMembers: [],    // tous les membres de toutes les leagues
+  activeLeagueId: null, // null = vue globale
 };
 
 // ── LIVE SCORES ──────────────────────────────────────────────────────
@@ -1394,6 +1482,7 @@ async function init() {
   subscribeRealtime();
   state.loading = false;
   initFinishedSeriesCache();
+  restoreActiveLeague();
   startCountdownTicker();
   if (!state.currentPlayer) {
     state.showOnboarding = true;
@@ -1422,7 +1511,8 @@ async function loadAll() {
     loadPredictions(),
     loadMvpPredictions(),
     loadChampionPredictions(),
-    loadDoubleDowns()
+    loadDoubleDowns(),
+    loadLeagues(),
   ]);
   computeLeaderboard();
 }
@@ -1480,6 +1570,292 @@ async function loadChampionPredictions() {
 async function loadDoubleDowns() {
   const { data } = await sb.from('double_down').select('*');
   state.doubleDowns = data || [];
+}
+
+async function loadLeagues() {
+  if (!state.currentPlayer) {
+    state.leagues = [];
+    state.leagueMembers = [];
+    return;
+  }
+
+  // 1. Récupérer uniquement les memberships du joueur courant
+  const { data: myMemberships } = await sb
+    .from('league_members')
+    .select('*')
+    .eq('player_id', state.currentPlayer.id);
+
+  const myLeagueIds = (myMemberships || []).map(m => m.league_id);
+
+  if (!myLeagueIds.length) {
+    state.leagues = [];
+    state.leagueMembers = [];
+    return;
+  }
+
+  // 2. Charger uniquement ces leagues
+  const { data: leagues } = await sb
+    .from('leagues')
+    .select('*')
+    .in('id', myLeagueIds)
+    .order('created_at', { ascending: true });
+
+  state.leagues = leagues || [];
+
+  // 3. Charger tous les membres de CES leagues seulement (pour afficher les compteurs)
+  const { data: members } = await sb
+    .from('league_members')
+    .select('*')
+    .in('league_id', myLeagueIds);
+
+  state.leagueMembers = members || [];
+}
+
+// ── Restore active league from localStorage ──
+function restoreActiveLeague() {
+  const saved = localStorage.getItem('nba26_active_league');
+  if (saved && state.leagues.find(l => l.id === saved)) {
+    state.activeLeagueId = saved;
+  } else {
+    state.activeLeagueId = null;
+  }
+}
+
+function setActiveLeague(leagueId) {
+  state.activeLeagueId = leagueId;
+  _lbExpanded = false; // toujours repartir en vue compacte au changement de vue
+  if (leagueId) {
+    localStorage.setItem('nba26_active_league', leagueId);
+  } else {
+    localStorage.removeItem('nba26_active_league');
+  }
+  render();
+}
+
+// ── Get the leaderboard filtered by current active league ──
+function getFilteredLeaderboard() {
+  if (!state.activeLeagueId) return state.leaderboard;
+  const memberIds = new Set(
+    state.leagueMembers
+      .filter(m => m.league_id === state.activeLeagueId)
+      .map(m => m.player_id)
+  );
+  return state.leaderboard.filter(p => memberIds.has(p.id));
+}
+
+// ── Get leagues the current player is a member of ──
+function myLeagues() {
+  if (!state.currentPlayer) return [];
+  const myMemberLeagueIds = new Set(
+    state.leagueMembers
+      .filter(m => m.player_id === state.currentPlayer.id)
+      .map(m => m.league_id)
+  );
+  return state.leagues.filter(l => myMemberLeagueIds.has(l.id));
+}
+
+// ── League members count ──
+function leagueMemberCount(leagueId) {
+  return state.leagueMembers.filter(m => m.league_id === leagueId).length;
+}
+
+// ── Is current player member of league ──
+function isLeagueMember(leagueId) {
+  if (!state.currentPlayer) return false;
+  return state.leagueMembers.some(m => m.league_id === leagueId && m.player_id === state.currentPlayer.id);
+}
+
+// ── Create a league ──
+async function createLeague(name) {
+  if (!state.currentPlayer) return;
+  // Generate a fun invite code
+  const words = ['Lakers', 'Bulls', 'Heat', 'Spurs', 'Celts', 'Mavs', 'Nets', 'Suns', 'Kings', 'Bucks'];
+  const word = words[Math.floor(Math.random() * words.length)];
+  const num = Math.floor(10 + Math.random() * 90);
+  const code = word + num;
+
+  const { data, error } = await sb.from('leagues').insert({
+    name: name.trim(),
+    code,
+    created_by: state.currentPlayer.id,
+  }).select().single();
+
+  if (error) {
+    toast('❌ Erreur création league : ' + error.message);
+    return;
+  }
+
+  // Auto-join as member
+  await sb.from('league_members').insert({
+    league_id: data.id,
+    player_id: state.currentPlayer.id,
+  });
+
+  await loadLeagues();
+  setActiveLeague(data.id);
+  toast('🏀 League "' + data.name + '" créée ! Code : ' + data.code);
+}
+
+// ── Join a league by code ──
+async function joinLeague(code) {
+  if (!state.currentPlayer) return;
+
+  // Chercher la league directement en base (state.leagues ne contient que nos leagues)
+  const { data: results } = await sb
+    .from('leagues')
+    .select('*')
+    .ilike('code', code.trim());
+
+  const league = results?.[0];
+
+  if (!league) {
+    toast('❌ Code invalide. Vérifie le code d\'invitation.');
+    return;
+  }
+  if (isLeagueMember(league.id)) {
+    toast('Tu es déjà dans cette league !');
+    setActiveLeague(league.id);
+    return;
+  }
+  // Vérifier la limite de 50 joueurs
+  const { count: memberCount } = await sb.from('league_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('league_id', league.id);
+  if (memberCount >= 50) {
+    toast('❌ Cette league est complète (50 joueurs max).');
+    return;
+  }
+  const { error } = await sb.from('league_members').insert({
+    league_id: league.id,
+    player_id: state.currentPlayer.id,
+  });
+  if (error) {
+    toast('❌ Erreur : ' + error.message);
+    return;
+  }
+  await loadLeagues();
+  setActiveLeague(league.id);
+  toast('✅ Tu as rejoint "' + league.name + '" !');
+}
+
+// ── Leave a league ──
+async function leaveLeague(leagueId) {
+  if (!state.currentPlayer) return;
+  if (!confirm('Quitter cette league ?')) return;
+  await sb.from('league_members').delete()
+    .eq('league_id', leagueId)
+    .eq('player_id', state.currentPlayer.id);
+  // Si la league est désormais vide, la supprimer proprement
+  const { count } = await sb.from('league_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('league_id', leagueId);
+  if (count === 0) {
+    await sb.from('leagues').delete().eq('id', leagueId);
+  }
+  await loadLeagues();
+  if (state.activeLeagueId === leagueId) setActiveLeague(null);
+  else render();
+  toast('👋 League quittée');
+}
+
+// ── Open leagues panel ──
+function openLeaguesPanel() {
+  const existing = document.getElementById('league-overlay');
+  if (existing) existing.remove();
+  document.body.insertAdjacentHTML('beforeend', renderLeaguesPanel());
+}
+function closeLeaguesPanel() {
+  const el = document.getElementById('league-overlay');
+  if (el) el.remove();
+}
+
+function renderLeaguesPanel() {
+  const myL = myLeagues();
+  const cp = state.currentPlayer;
+
+  const myLeaguesHTML = myL.length ? myL.map(l => {
+    const count = leagueMemberCount(l.id);
+    const isActive = state.activeLeagueId === l.id;
+    const isOwner = l.created_by === cp?.id;
+    return `
+      <div class="league-card ${isActive ? 'active-card' : ''}" onclick="setActiveLeague('${l.id}');closeLeaguesPanel()">
+        <div class="league-card-icon">🏀</div>
+        <div style="flex:1;min-width:0">
+          <div class="league-card-name">${l.name}</div>
+          <div class="league-card-sub">${count}/50 joueur${count > 1 ? 's' : ''}${isOwner ? ' · créateur' : ''}${count >= 50 ? ' · <span style="color:var(--amber)">Complète</span>' : ''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+          <div class="league-card-code">${l.code}</div>
+          <button class="btn btn-sm btn-ghost btn-danger" style="font-size:10px;padding:3px 8px"
+            onclick="event.stopPropagation();leaveLeague('${l.id}')">Quitter</button>
+        </div>
+      </div>`;
+  }).join('') : `<div style="padding:16px;font-size:13px;color:var(--muted);text-align:center">
+    Tu n'es dans aucune league.<br>Crée-en une ou rejoins celle d'un ami !
+  </div>`;
+
+  return `
+    <div class="league-overlay" id="league-overlay" onclick="handleLeagueOverlayClick(event)">
+      <div class="league-sheet" onclick="event.stopPropagation()">
+        <div class="league-sheet-handle"></div>
+        <div class="league-sheet-header">
+          <div class="league-sheet-title">🏀 <em>Leagues</em></div>
+          <div class="league-sheet-sub">Joue entre amis avec un classement privé</div>
+        </div>
+
+        <!-- My leagues -->
+        <div class="league-form-section">
+          <div class="league-form-section-title">Mes leagues</div>
+        </div>
+        ${myLeaguesHTML}
+
+        <!-- Create -->
+        <div class="league-form-section" style="margin-top:16px">
+          <div class="league-form-section-title">Créer une league</div>
+          <div style="display:flex;gap:8px">
+            <input id="league-create-name" placeholder="Nom de ta league (ex: Famille)" maxlength="30" style="flex:1"
+              onkeydown="if(event.key==='Enter')doCreateLeague()">
+            <button class="btn btn-primary" onclick="doCreateLeague()" style="white-space:nowrap">Créer</button>
+          </div>
+        </div>
+
+        <!-- Join -->
+        <div class="league-form-section" style="margin-top:16px">
+          <div class="league-form-section-title">Rejoindre avec un code</div>
+          <div style="display:flex;gap:8px">
+            <input id="league-join-code" placeholder="Ex: Lakers42" maxlength="20"
+              style="flex:1;letter-spacing:0.05em;font-family:'DM Mono',monospace"
+              onkeydown="if(event.key==='Enter')doJoinLeague()">
+            <button class="btn btn-primary" onclick="doJoinLeague()" style="white-space:nowrap">Rejoindre</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">
+            Demande le code à l'ami qui a créé la league
+          </div>
+        </div>
+
+        <div style="padding:16px 16px 0">
+          <button class="btn btn-ghost btn-block" onclick="closeLeaguesPanel()">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function handleLeagueOverlayClick(e) {
+  if (e.target.id === 'league-overlay') closeLeaguesPanel();
+}
+
+async function doCreateLeague() {
+  const name = document.getElementById('league-create-name')?.value.trim();
+  if (!name) return toast('Entre un nom pour ta league !');
+  closeLeaguesPanel();
+  await createLeague(name);
+}
+
+async function doJoinLeague() {
+  const code = document.getElementById('league-join-code')?.value.trim();
+  if (!code) return toast('Entre le code d\'invitation !');
+  closeLeaguesPanel();
+  await joinLeague(code);
 }
 
 // ══════════════════════════════════════════════════
@@ -1757,6 +2133,16 @@ function subscribeRealtime() {
       if (state.loading) return;
       await loadDoubleDowns();
       computeLeaderboard();
+      render();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'leagues' }, async () => {
+      if (state.loading) return;
+      await loadLeagues();
+      render();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'league_members' }, async () => {
+      if (state.loading) return;
+      await loadLeagues();
       render();
     })
     .subscribe();
@@ -3143,7 +3529,11 @@ function setCurrentPlayer(p) {
   _bannerRunning = false;
   _currentBannerSeriesId = null;
   initFinishedSeriesCache();
-  render();
+  // Charger les leagues du joueur maintenant qu'on connaît son ID
+  loadLeagues().then(() => {
+    restoreActiveLeague();
+    render();
+  });
   // Afficher la bannière push après connexion (nécessite un clic utilisateur sur Android)
   setTimeout(showPushBanner, 1200);
   // Mettre à jour l'icône cloche dans le header
@@ -3151,7 +3541,7 @@ function setCurrentPlayer(p) {
 }
 
 // ── LEADERBOARD ──
-function buildLeaderboardTimeline() {
+function buildLeaderboardTimeline(playersToChart) {
   const ptsMvpR1 = Number(state.settings['points_mvp_premier_tour'] ?? 1);
   const ptsMvpSF = Number(state.settings['points_mvp_demi_finales'] ?? 2);
   const ptsMvpCF = Number(state.settings['points_mvp_finales_conference'] ?? 4);
@@ -3165,7 +3555,7 @@ function buildLeaderboardTimeline() {
   const awardedSeriesExactPoints = new Set();
   const awardedMvpPoints = new Set();
 
-  state.players.forEach(p => {
+  playersToChart.forEach(p => {
     totals[p.id] = 0;
   });
 
@@ -3206,7 +3596,7 @@ function buildLeaderboardTimeline() {
   function pushSnapshot(label) {
     timeline.push({
       label,
-      points: state.players.map(p => ({
+      points: playersToChart.map(p => ({
         player_id: p.id,
         name: p.name,
         color: p.avatar_color,
@@ -3305,7 +3695,21 @@ function buildLeaderboardTimeline() {
 }
 
 function renderLeaderboardTrendChart() {
-  const timeline = buildLeaderboardTimeline();
+  // Top 10 du classement actuellement affiché (global ou league)
+  const TOP_N = 10;
+  const filteredLb = getFilteredLeaderboard().slice(0, TOP_N);
+  const topPlayerIds = new Set(filteredLb.map(p => p.id));
+  const playersToChart = state.players.filter(p => topPlayerIds.has(p.id))
+    // Trier dans le même ordre que le classement filtré
+    .sort((a, b) => {
+      const ra = filteredLb.findIndex(p => p.id === a.id);
+      const rb = filteredLb.findIndex(p => p.id === b.id);
+      return ra - rb;
+    });
+
+  const timeline = buildLeaderboardTimeline(playersToChart);
+  const totalPlayers = getFilteredLeaderboard().length;
+  const isTruncated = totalPlayers > TOP_N;
 
   if (!timeline.length) {
     return `
@@ -3378,7 +3782,7 @@ function renderLeaderboardTrendChart() {
 
   const chartId = 'chart_' + Math.random().toString(36).slice(2, 7);
 
-  const lines = state.players.map((player, idx) => {
+  const lines = playersToChart.map((player, idx) => {
     const color = chartColorOf(idx);
     const dash = dashOf(idx);
     const dashAttr = dash ? `stroke-dasharray="${dash}"` : '';
@@ -3399,13 +3803,13 @@ function renderLeaderboardTrendChart() {
     `;
   }).join('');
 
-  const legend = state.players.map((player, idx) => {
+  const legend = playersToChart.map((player, idx) => {
     const color = chartColorOf(idx);
     const dash = dashOf(idx);
     // Miniature SVG de la ligne dans la légende
     const linePreview = `<svg width="18" height="10" style="flex-shrink:0;overflow:visible"><line x1="0" y1="5" x2="18" y2="5" stroke="${color}" stroke-width="2" ${dash ? `stroke-dasharray="${dash}"` : ''}/></svg>`;
     return `
-    <div class="chart-legend-item-${chartId}" data-pidx="${idx}" onclick="toggleChartLine('${chartId}', ${idx}, ${state.players.length})"
+    <div class="chart-legend-item-${chartId}" data-pidx="${idx}" onclick="toggleChartLine('${chartId}', ${idx}, ${playersToChart.length})"
       style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;padding:3px 7px;border-radius:8px;border:1px solid transparent;transition:all .15s;user-select:none">
       ${linePreview}
       <span>${player.name}</span>
@@ -3423,6 +3827,7 @@ function renderLeaderboardTrendChart() {
           </div>
           <div style="font-size:11px;color:var(--muted)">
             Points cumulés par étape · <span style="opacity:.6">Tap un joueur pour isoler</span>
+            ${isTruncated ? `· <span style="color:var(--gold)">Top ${TOP_N} affiché</span>` : ''}
           </div>
         </div>
         <span class="badge badge-blue">${timeline.length}</span>
@@ -3511,7 +3916,7 @@ function _liveScoreHTML(seriesId, live) {
 }
 
 function _renderLeaderboardWithLive() {
-  const lb = state.leaderboard;
+  const lb = getFilteredLeaderboard();
   if (!lb.length) return '<div id="lb-live-projection"></div>';
   const hasLive = Object.keys(state.liveScores).length > 0;
   if (!hasLive) return '<div id="lb-live-projection"></div>';
@@ -3588,12 +3993,132 @@ function _renderLeaderboardWithLive() {
   </div>`;
 }
 
+// Tracks whether the leaderboard is in "expanded" mode (50) or "compact" mode (10)
+let _lbExpanded = false;
+
 function renderLeaderboard() {
-  const lb=state.leaderboard;
-  if(!lb.length) return `<div class="empty"><span class="empty-icon">🏆</span>Personne n'a encore pronostiqué !</div>`;
+  const lb = getFilteredLeaderboard();
+  const myL = myLeagues();
+  const activeLeague = state.activeLeagueId ? state.leagues.find(l => l.id === state.activeLeagueId) : null;
+
+  // League switcher chips
+  const switcherHTML = `
+    <div class="league-switcher">
+      <button class="league-chip global ${!state.activeLeagueId ? 'active' : ''}" onclick="setActiveLeague(null)">
+        🌍 Global
+        <span class="league-chip-badge">${state.leaderboard.length}</span>
+      </button>
+      ${myL.map(l => `
+        <button class="league-chip ${state.activeLeagueId === l.id ? 'active' : ''}" onclick="setActiveLeague('${l.id}')">
+          🏀 ${l.name}
+          <span class="league-chip-badge">${leagueMemberCount(l.id)}</span>
+        </button>`).join('')}
+      <button class="league-chip" onclick="openLeaguesPanel()" style="border-style:dashed">
+        + League
+      </button>
+    </div>`;
+
+  if (!lb.length) {
+    if (state.activeLeagueId) {
+      return switcherHTML + `<div class="empty"><span class="empty-icon">🏀</span>Personne dans cette league n'a encore pronostiqué !</div>`;
+    }
+    return switcherHTML + `<div class="empty"><span class="empty-icon">🏆</span>Personne n'a encore pronostiqué !</div>`;
+  }
+
   const [first,...rest]=lb;
   const cp=state.currentPlayer;
+
+  // ── Pagination ──────────────────────────────────────────────────────
+  const COMPACT = 9;   // lignes après le podium → top 10 au total (#1 podium + #2..#10)
+  const EXPANDED = 49; // lignes après le podium → top 50 au total
+  // Always render all rows; we'll show/hide via DOM toggle (no re-render)
+  const visibleRest = rest.slice(0, EXPANDED);
+  const hasMore = rest.length > COMPACT;
+  const cpRankFull = lb.findIndex(p => p.id === cp?.id); // 0-based dans lb
+  const cpInVisible = cp && (cpRankFull === 0 || (cpRankFull > 0 && cpRankFull <= COMPACT));
+  const cpIsHidden = cp && cpRankFull > COMPACT; // le joueur existe mais est hors de la liste visible
+
+  // Construire le Set des IDs des membres de toutes mes leagues (hors moi)
+  const myLeagueIds = new Set(myL.map(l => l.id));
+  const leagueMateIds = new Set(
+    state.leagueMembers
+      .filter(m => myLeagueIds.has(m.league_id) && m.player_id !== cp?.id)
+      .map(m => m.player_id)
+  );
+  // En vue globale on surligne tous les coéquipiers de league, en vue league filtrée uniquement ceux de cette league
+  const activeLeagueMateIds = activeLeague
+    ? new Set(state.leagueMembers.filter(m => m.league_id === activeLeague.id && m.player_id !== cp?.id).map(m => m.player_id))
+    : leagueMateIds;
+
+  function lbRow(p, rank, extra) {
+    const isMe = p.id === cp?.id;
+    const isLeagueMate = !isMe && !state.activeLeagueId && activeLeagueMateIds.has(p.id);
+    const sharedLeagues = isLeagueMate
+      ? myL.filter(l => state.leagueMembers.some(m => m.league_id === l.id && m.player_id === p.id))
+      : [];
+    const leagueTag = isLeagueMate
+      ? `<span style="font-size:9px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;background:rgba(61,127,255,0.18);border:1px solid rgba(61,127,255,0.35);color:#9ec4ff;border-radius:999px;padding:1px 7px;margin-left:5px;vertical-align:middle">🏀 ${sharedLeagues.length === 1 ? sharedLeagues[0].name : 'League'}</span>`
+      : '';
+    return `
+      <div class="lb-row${extra ? ' lb-extra-row' : ''}" onclick="openPlayerProfile('${p.id}')" style="cursor:pointer;${isMe ? 'background:rgba(232,66,42,0.06);margin:0 -16px;padding:10px 16px;border-radius:12px;' : isLeagueMate ? 'background:rgba(61,127,255,0.05);margin:0 -16px;padding:10px 16px 10px 14px;border-radius:12px;border-left:2px solid rgba(61,127,255,0.45);' : ''}${extra && !_lbExpanded ? 'display:none;' : ''}">
+        <span class="lb-rank-num" style="${isLeagueMate ? 'color:var(--blue)' : ''}">${rank}</span>
+        ${avatarImg(p, '36px')}
+        <div style="flex:1;min-width:0">
+          <div class="lb-name">${p.name}${isMe ? ' <span style="font-size:10px;color:var(--accent)">toi</span>' : ''}${leagueTag}${_trendArrow(p.id, rank)}</div>
+          <div style="font-size:11px;color:var(--muted)">${p.correct_games} bonne(s) sur ${p.total_games_predicted} matchs</div>
+        </div>
+        <div style="text-align:right">
+          <div class="lb-pts-sm" style="${isLeagueMate ? 'color:var(--blue)' : ''}">${p.total_points}</div>
+          <div class="lb-pts-lbl">pts</div>
+        </div>
+      </div>`;
+  }
+
+  // Bouton "Voir plus / Réduire" — manipulation DOM directe, sans re-render
+  const expandBtnHTML = hasMore
+    ? `<button id="lb-expand-btn" class="btn btn-ghost btn-block" style="margin-top:8px;font-size:13px" onclick="toggleLbExpanded()">
+        <span id="lb-expand-label">${_lbExpanded ? '↑ Réduire' : '↓ Voir plus <span style=\'color:var(--muted);font-size:11px\'>(top 50)</span>'}</span>
+      </button>`
+    : '';
+
+  // Ligne "fantôme" du joueur courant s'il est hors du top visible
+  const cpAnchorHTML = cpIsHidden ? (() => {
+    const cpData = lb[cpRankFull];
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0 0;border-top:1px dashed var(--border2);margin-top:2px">
+        <span style="font-size:10px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;flex-shrink:0">Ta position</span>
+      </div>
+      <div class="lb-row" onclick="openPlayerProfile('${cpData.id}')" style="cursor:pointer;background:rgba(232,66,42,0.06);margin:0 -16px;padding:10px 16px;border-radius:12px;">
+        <span class="lb-rank-num" style="color:var(--accent)">${cpRankFull + 1}</span>
+        ${avatarImg(cpData, '36px')}
+        <div>
+          <div class="lb-name">${cpData.name} <span style="font-size:10px;color:var(--accent)">toi</span></div>
+          <div style="font-size:11px;color:var(--muted)">${cpData.correct_games} bonne(s) sur ${cpData.total_games_predicted} matchs</div>
+        </div>
+        <div style="text-align:right">
+          <div class="lb-pts-sm">${cpData.total_points}</div>
+          <div class="lb-pts-lbl">pts</div>
+        </div>
+      </div>`;
+  })() : '';
+
+  const leagueHeaderHTML = activeLeague ? `
+    <div style="margin:8px 12px 0;padding:10px 14px;background:rgba(61,127,255,0.07);
+                border:1px solid rgba(61,127,255,0.2);border-radius:14px;
+                display:flex;align-items:center;gap:10px">
+      <span style="font-size:18px">🏀</span>
+      <div style="flex:1">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;text-transform:uppercase">${activeLeague.name}</div>
+        <div style="font-size:11px;color:var(--muted)">${leagueMemberCount(activeLeague.id)} joueur${leagueMemberCount(activeLeague.id) > 1 ? 's' : ''} · Code : <span style="font-family:'DM Mono',monospace;color:#9ec4ff">${activeLeague.code}</span></div>
+      </div>
+      <button class="btn btn-sm" style="font-size:11px" onclick="navigator.clipboard?.writeText('${activeLeague.code}').then(()=>toast('📋 Code copié : ${activeLeague.code}'))">
+        Copier le code
+      </button>
+    </div>` : '';
+
   return `
+    ${switcherHTML}
+    ${leagueHeaderHTML}
     <div class="section-label">Leader actuel</div>
     <div class="lb-podium" onclick="openPlayerProfile('${first.id}')" style="cursor:pointer">
       <div class="lb-podium-rank">#1 · En tête</div>
@@ -3609,19 +4134,13 @@ function renderLeaderboard() {
         </div>
       </div>
     </div>
-    ${rest.length?`<div class="section-label">Classement</div><div class="card">${rest.map((p,i)=>`
-      <div class="lb-row" onclick="openPlayerProfile('${p.id}')" style="cursor:pointer;${p.id===cp?.id?'background:rgba(232,66,42,0.06);margin:0 -16px;padding:10px 16px;border-radius:12px;':''}">
-        <span class="lb-rank-num">${i+2}</span>
-        ${avatarImg(p, '36px')}
-        <div>
-          <div class="lb-name">${p.name}${p.id===cp?.id?' <span style="font-size:10px;color:var(--accent)">toi</span>':''}${_trendArrow(p.id, i+2)}</div>
-          <div style="font-size:11px;color:var(--muted)">${p.correct_games} bonne(s) sur ${p.total_games_predicted} matchs</div>
-        </div>
-        <div style="text-align:right">
-          <div class="lb-pts-sm">${p.total_points}</div>
-          <div class="lb-pts-lbl">pts</div>
-        </div>
-      </div>`).join('')}</div>`:''}
+    ${visibleRest.length ? `
+      <div class="section-label">Classement</div>
+      <div class="card">
+        ${visibleRest.map((p, i) => lbRow(p, i + 2, i >= COMPACT)).join('')}
+        ${cpAnchorHTML}
+        ${expandBtnHTML}
+      </div>` : ''}
     ${_renderLeaderboardWithLive()}
     <div class="section-label">Détail des points</div>
     <div class="card" style="overflow-x:auto">
@@ -3630,7 +4149,7 @@ function renderLeaderboard() {
           <th style="text-align:left">Joueur</th>
           <th>🏀 Pts Matchs</th><th>📊 Pts Série</th><th>🎯 Pts Exact</th><th>👑 MVP</th><th>Pts Total</th>
         </tr></thead>
-        <tbody>${lb.map(p=>`<tr onclick="openPlayerProfile('${p.id}')" style="cursor:pointer" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+        <tbody>${lb.slice(0, EXPANDED + 1).map(p=>`<tr onclick="openPlayerProfile('${p.id}')" style="cursor:pointer" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
           <td style="display:flex;align-items:center;gap:8px">
             ${avatarImg(p, '24px', 'display:inline-flex;')}
             ${p.name}
@@ -3643,6 +4162,7 @@ function renderLeaderboard() {
         </tr>`).join('')}</tbody>
       </table>
     </div>
+    ${!state.activeLeagueId ? `
         <div class="section-label">Tendance</div>
         ${renderLeaderboardTrendChart()}
     ${(() => {
@@ -3651,7 +4171,7 @@ function renderLeaderboard() {
         .filter(Boolean);
       if (!recaps.length) return '';
       return `<div class="section-label">Récap par round</div>` + recaps.join('');
-    })()}`;
+    })()}` : ''}`;
 }
 
 // ── PREDICTIONS ──
@@ -4498,6 +5018,39 @@ function cancelEditSeries(seriesId, pid) {
 }
 
 // ── SERIES PAGE ──
+function toggleLbExpanded() {
+  _lbExpanded = !_lbExpanded;
+  const extras = document.querySelectorAll('.lb-extra-row');
+  const btn = document.getElementById('lb-expand-btn');
+  const label = document.getElementById('lb-expand-label');
+
+  if (_lbExpanded) {
+    // Show extra rows with a smooth transition
+    extras.forEach((el, i) => {
+      el.style.display = 'flex';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(-6px)';
+      el.style.transition = `opacity .25s ease ${i * 18}ms, transform .25s ease ${i * 18}ms`;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        el.style.opacity = '1';
+        el.style.transform = 'translateY(0)';
+      }));
+    });
+    if (label) label.innerHTML = '↑ Réduire';
+  } else {
+    // Hide extra rows instantly (scroll back up first)
+    extras.forEach(el => {
+      el.style.display = 'none';
+      el.style.opacity = '';
+      el.style.transform = '';
+      el.style.transition = '';
+    });
+    if (label) label.innerHTML = '↓ Voir plus <span style="color:var(--muted);font-size:11px">(top 50)</span>';
+    // Scroll the leaderboard card into view
+    if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+}
+
 function toggleSeriesRound(round) {
   const safeId = round.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
   const body   = document.getElementById('sr-body-' + safeId);
@@ -4887,6 +5440,7 @@ async function adminManualSync() {
   const btn = document.querySelector('[onclick="adminManualSync()"]');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
 
+  _autoSyncLog = []; // reset log à chaque sync manuel
   let totalSynced = 0;
   for (const series of state.series) {
     // forceSync = true : vide le cache ESPN pour retenter même ce qui a déjà été cherché
@@ -4895,6 +5449,7 @@ async function adminManualSync() {
 
   _autoSyncLastRun = new Date();
   _autoSyncCount = totalSynced;
+  _saveSyncState(_autoSyncLastRun.toISOString(), totalSynced, _autoSyncLog);
 
   if (totalSynced > 0) {
     computeLeaderboard();
@@ -6476,7 +7031,7 @@ const ESPN_ABBREV = {
   'hawks':'ATL','hornets':'CHA','heat':'MIA','magic':'ORL','wizards':'WSH',
   'nuggets':'DEN','timberwolves':'MIN','wolves':'MIN','thunder':'OKC','trail blazers':'POR',
   'blazers':'POR','jazz':'UTA',
-  'warriors':'GS','gsw':'GSW','clippers':'LAC','lakers':'LAL','suns':'PHX','kings':'SAC',
+  'warriors':'GS','gsw':'GS','clippers':'LAC','lakers':'LAL','suns':'PHX','kings':'SAC',
   'mavericks':'DAL','mavs':'DAL','rockets':'HOU','grizzlies':'MEM','grizz':'MEM',
   'pelicans':'NO','spurs':'SA',
   // full names
@@ -6533,11 +7088,13 @@ async function findEspnEventsForSeries(seriesId, team1, team2, seriesStartTime) 
       const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${rangeStr}&limit=100`);
       if (res.ok) {
         const data = await res.json();
+        const allAbbrs = new Set();
         for (const ev of (data.events || [])) {
           if (seen.has(ev.id)) continue;
           const comp = ev.competitions?.[0];
           if (!comp) continue;
           const abbrs = (comp.competitors || []).map(c => (c.team?.abbreviation || '').toUpperCase());
+          abbrs.forEach(a => allAbbrs.add(a));
           if (abbrs.includes(abbr1.toUpperCase()) && abbrs.includes(abbr2.toUpperCase())) {
             const evDate = ev.date ? new Date(ev.date) : null;
             if (evDate) {
@@ -6546,10 +7103,16 @@ async function findEspnEventsForSeries(seriesId, team1, team2, seriesStartTime) 
             }
           }
         }
+        // Log de debug : affiche les abbréviations trouvées si aucun match matché
+        if (!matched.length) {
+          _autoSyncLog.push({ ok:false, warn:true, msg:`⚠ ${team1} vs ${team2} — ESPN plage ${rangeStr} : ${data.events?.length||0} matchs NBA, abréviations : ${[...allAbbrs].join(', ')||'aucune'} (cherche ${abbr1} et ${abbr2})` });
+        }
       }
-    } catch(e) { /* continue */ }
+    } catch(e) {
+      _autoSyncLog.push({ ok:false, warn:false, msg:`✗ ${team1} vs ${team2} — Erreur fetch ESPN plage ${rangeStr} : ${e.message}` });
+    }
 
-    cursor.setDate(cursor.getDate() + chunkDays + 1);
+    cursor.setUTCDate(cursor.getUTCDate() + chunkDays + 1);
   }
 
   matched.sort((a,b) => a.date - b.date);
@@ -6583,16 +7146,19 @@ async function findEspnEventsForSeriesSync(seriesId, team1, team2, seriesStartTi
   // On cherche jusqu'à aujourd'hui (pas besoin d'aller plus loin)
   const endD = new Date(Math.min(Date.now(), startD.getTime() + 42 * 86400000));
 
-  const fmt = d => d.getFullYear().toString()
-    + String(d.getMonth()+1).padStart(2,'0')
-    + String(d.getDate()).padStart(2,'0');
+  // Toujours utiliser UTC pour le formatage — évite les décalages de fuseau horaire
+  // qui feraient chercher un jour trop tôt (ex: 00h00 CEST = 22h00 UTC la veille)
+  const fmt = d => d.getUTCFullYear().toString()
+    + String(d.getUTCMonth()+1).padStart(2,'0')
+    + String(d.getUTCDate()).padStart(2,'0');
 
   const matched = [];
   const seen = new Set();
 
   const chunkDays = 14;
   const cursor = new Date(startD);
-  cursor.setDate(cursor.getDate() - 1);
+  // Reculer de 2 jours pour absorber tout décalage UTC/local
+  cursor.setUTCDate(cursor.getUTCDate() - 2);
 
   while (cursor <= endD) {
     const from = new Date(cursor);
@@ -6603,11 +7169,13 @@ async function findEspnEventsForSeriesSync(seriesId, team1, team2, seriesStartTi
       const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${rangeStr}&limit=100`);
       if (res.ok) {
         const data = await res.json();
+        const allAbbrs = new Set();
         for (const ev of (data.events || [])) {
           if (seen.has(ev.id)) continue;
           const comp = ev.competitions?.[0];
           if (!comp) continue;
           const abbrs = (comp.competitors || []).map(c => (c.team?.abbreviation || '').toUpperCase());
+          abbrs.forEach(a => allAbbrs.add(a));
           if (abbrs.includes(abbr1.toUpperCase()) && abbrs.includes(abbr2.toUpperCase())) {
             const evDate = ev.date ? new Date(ev.date) : null;
             if (evDate) {
@@ -6616,10 +7184,16 @@ async function findEspnEventsForSeriesSync(seriesId, team1, team2, seriesStartTi
             }
           }
         }
+        // Log de debug : affiche les abbréviations trouvées si aucun match matché
+        if (!matched.length) {
+          _autoSyncLog.push({ ok:false, warn:true, msg:`⚠ ${team1} vs ${team2} — ESPN plage ${rangeStr} : ${data.events?.length||0} matchs NBA, abréviations : ${[...allAbbrs].join(', ')||'aucune'} (cherche ${abbr1} et ${abbr2})` });
+        }
       }
-    } catch(e) { /* continue */ }
+    } catch(e) {
+      _autoSyncLog.push({ ok:false, warn:false, msg:`✗ ${team1} vs ${team2} — Erreur fetch ESPN plage ${rangeStr} : ${e.message}` });
+    }
 
-    cursor.setDate(cursor.getDate() + chunkDays + 1);
+    cursor.setUTCDate(cursor.getUTCDate() + chunkDays + 1);
   }
 
   matched.sort((a, b) => a.date - b.date);
@@ -7082,7 +7656,8 @@ async function fetchEspnGameWinner(espnId, team1, team2) {
  * Retourne le nombre de matchs synchronisés.
  */
 async function syncSeriesResults(series, forceSync = false) {
-  if (!series.start_time) return 0; // impossible de chercher sans date de début de série
+  const tag = `${series.team1} vs ${series.team2}`;
+  if (!series.start_time) { _autoSyncLog.push({ ok:false, warn:true, msg:`⚠ ${tag} — pas de date de début` }); return 0; }
   if (series.status === 'finished') return 0;
 
   const games = state.games[series.id] || [];
@@ -7095,7 +7670,10 @@ async function syncSeriesResults(series, forceSync = false) {
   // findEspnEventsForSeriesSync cherche TOUS les matchs ESPN entre les deux équipes
   // depuis le début de la série jusqu'à aujourd'hui, sans se limiter aux finishedGames
   const espnEvents = await findEspnEventsForSeriesSync(series.id, series.team1, series.team2, series.start_time);
-  if (!espnEvents.length) return 0;
+  if (!espnEvents.length) {
+    _autoSyncLog.push({ ok:false, warn:true, msg:`⚠ ${tag} — aucun match trouvé sur ESPN` });
+    return 0;
+  }
 
   let syncCount = 0;
 
@@ -7105,22 +7683,26 @@ async function syncSeriesResults(series, forceSync = false) {
     if (!game || game.status === 'finished') continue;
 
     const winner = await fetchEspnGameWinner(espnId, series.team1, series.team2);
-    if (!winner) continue;
+    if (!winner) {
+      _autoSyncLog.push({ ok:false, warn:true, msg:`⚠ ${tag} — Match ${gameNumber} (ESPN #${espnId}) : pas encore terminé ou vainqueur non identifié` });
+      continue;
+    }
 
     // Enregistrer dans Supabase
     const { error } = await sb.from('games').update({
       winner,
-      status: 'finished',
-      updated_at: new Date().toISOString()
+      status: 'finished'
     }).eq('id', game.id);
 
     if (error) {
       console.error('[AutoSync] Erreur Supabase:', error);
+      _autoSyncLog.push({ ok:false, warn:false, msg:`✗ ${tag} — Match ${gameNumber} : erreur Supabase — ${error.message}` });
       continue;
     }
 
     syncCount++;
-    console.log(`[AutoSync] ✅ ${series.team1} vs ${series.team2} — Match ${gameNumber} → ${winner}`);
+    _autoSyncLog.push({ ok:true, warn:false, msg:`✓ ${tag} — Match ${gameNumber} → ${winner}` });
+    console.log(`[AutoSync] ✅ ${tag} — Match ${gameNumber} → ${winner}`);
   }
 
   if (syncCount > 0) {
@@ -7141,8 +7723,7 @@ async function syncSeriesResults(series, forceSync = false) {
         await sb.from('series').update({
           series_winner: seriesWinner,
           series_games: seriesGamesCount,
-          status: 'finished',
-          updated_at: new Date().toISOString()
+          status: 'finished'
         }).eq('id', series.id);
         try { await sb.rpc('recalculate_points', { p_series_id: series.id }); } catch(e) {}
         await loadSeries();
@@ -7167,6 +7748,7 @@ async function autoSyncGameResults() {
     return;
   }
 
+  _autoSyncLog = []; // reset log à chaque sync auto
   let totalSynced = 0;
   for (const series of state.series) {
     totalSynced += await syncSeriesResults(series);
@@ -7185,8 +7767,17 @@ async function autoSyncGameResults() {
   _renderAdminSyncStatus();
 }
 
-let _autoSyncLastRun = null;
-let _autoSyncCount = 0;
+// Persist sync state across refreshes
+const _SYNC_KEY = 'nba26_last_sync';
+function _saveSyncState(ts, count, log) {
+  try { localStorage.setItem(_SYNC_KEY, JSON.stringify({ ts, count, log })); } catch(e) {}
+}
+function _loadSyncState() {
+  try { return JSON.parse(localStorage.getItem(_SYNC_KEY) || 'null'); } catch(e) { return null; }
+}
+let _autoSyncLastRun = (() => { const s = _loadSyncState(); return s?.ts ? new Date(s.ts) : null; })();
+let _autoSyncCount   = (() => { const s = _loadSyncState(); return s?.count ?? 0; })();
+let _autoSyncLog     = (() => { const s = _loadSyncState(); return s?.log  ?? []; })();
 
 function _renderAdminSyncStatus() {
   const el = document.getElementById('admin-sync-status');
@@ -7196,7 +7787,14 @@ function _renderAdminSyncStatus() {
     return;
   }
   const t = _autoSyncLastRun.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  el.innerHTML = `<span style="color:var(--green)">✓ Dernier sync : ${t}</span>${_autoSyncCount > 0 ? ` <span style="color:var(--blue)">(${_autoSyncCount} résultat${_autoSyncCount > 1 ? 's' : ''} ajouté${_autoSyncCount > 1 ? 's' : ''})</span>` : ''}`;
+  const countHTML = _autoSyncCount > 0
+    ? `<span style="color:var(--green)">✓ Dernier sync : ${t} — ${_autoSyncCount} résultat(s) enregistré(s)</span>`
+    : `<span style="color:var(--muted)">Dernier sync : ${t} — aucun nouveau résultat</span>`;
+  const logHTML = _autoSyncLog.length
+    ? `<div style="margin-top:8px;font-size:11px;font-family:'DM Mono',monospace;background:rgba(0,0,0,0.25);border-radius:8px;padding:8px 10px;max-height:140px;overflow-y:auto;line-height:1.7">
+        ${_autoSyncLog.map(l => `<div style="color:${l.ok ? 'var(--green)' : l.warn ? 'var(--amber)' : 'var(--red)'}">${l.msg}</div>`).join('')}
+      </div>` : '';
+  el.innerHTML = countHTML + logHTML;
 }
 
 /**
