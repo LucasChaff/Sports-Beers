@@ -1243,7 +1243,7 @@ let state = {
   currentPlayer:null, showOnboarding:false,
   onboardLogin:false, selectedLoginPlayer:null,
   adminAuthed:false, adminPage:'series',
-  series:[], games:{}, predictions:[],
+  series:[], games:{}, predictions:[], teamSeeds:{},
   players:[], settings:{}, leaderboard: [],
   mvpPredictions: [],
   championPredictions: [],
@@ -1514,8 +1514,24 @@ async function loadAll() {
     loadChampionPredictions(),
     loadDoubleDowns(),
     loadLeagues(),
+    loadTeamSeeds(),
   ]);
   computeLeaderboard();
+}
+
+async function loadTeamSeeds() {
+  const { data } = await sb.from('team_seeds').select('*');
+  state.teamSeeds = {};
+  (data || []).forEach(t => { state.teamSeeds[t.name] = t.playoff_seed; });
+}
+
+// Retourne le seed playoff d'une équipe (depuis la table team_seeds)
+// Fallback sur team1_seed/team2_seed de la série si pas trouvé
+function getTeamSeed(teamName, series, position) {
+  if (state.teamSeeds[teamName] != null) return state.teamSeeds[teamName];
+  if (position === 1) return series?.team1_seed ?? null;
+  if (position === 2) return series?.team2_seed ?? null;
+  return null;
 }
 
 async function loadSettings() {
@@ -2904,37 +2920,8 @@ const ROUND_NEXT = {
   'Finales de conférence': 'Finales NBA',
 };
 
-/**
- * Règle du bracket NBA : le vainqueur d'un slot du 1er tour rejoint
- * un slot précis de demi-finale, indépendamment de l'ordre de création.
- *
- * Clé = bracket_slot de la série source (1er tour ou demi-finale)
- * Valeur = bracket_slot de la série cible (demi-finale ou finale de conf)
- */
-const BRACKET_NEXT_SLOT = {
-  // Ouest 1er tour → Demi-finales Ouest
-  // SF1 : Thunder (#1 vs Suns #7)  +  Lakers (#4 vs Rockets #5)
-  // SF2 : Spurs (#2 vs Blazers #8) +  Nuggets (#3 vs Timberwolves #6)
-  'W-1v7': 'W-SF1',
-  'W-4v5': 'W-SF1',
-  'W-2v8': 'W-SF2',
-  'W-3v6': 'W-SF2',
-  // Est 1er tour → Demi-finales Est
-  // SF1 : Pistons (#1 vs Magic #8)  +  Cavaliers (#4 vs Raptors #5)
-  // SF2 : Celtics (#2 vs 76ers #7)  +  Knicks (#3 vs Hawks #6)
-  'E-1v8': 'E-SF1',
-  'E-4v5': 'E-SF1',
-  'E-2v7': 'E-SF2',
-  'E-3v6': 'E-SF2',
-  // Demi-finales → Finales de conférence
-  'W-SF1': 'W-CF',
-  'W-SF2': 'W-CF',
-  'E-SF1': 'E-CF',
-  'E-SF2': 'E-CF',
-  // Finales de conférence → Finales NBA (géré séparément)
-  'W-CF': null,
-  'E-CF': null,
-};
+// bracket_position (entier, 0-indexé) encode la position verticale dans le bracket.
+// Le vainqueur de la position p va en position floor(p/2) au tour suivant (logique ESPN).
 
 async function setSeriesResult(id, winner, games) {
   try {
@@ -3083,6 +3070,7 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
 
   const isNBAFinals = nextRound === 'Finales NBA';
   const conf = isNBAFinals ? '—' : series.conference;
+  const winnerSeed = getTeamSeed(winnerTeam, series, winnerTeam === series.team1 ? 1 : 2);
 
   const alreadyExists = state.series.find(s =>
     s.round === nextRound &&
@@ -3090,16 +3078,49 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
   );
   if (alreadyExists) return;
 
+  // ── Logique ESPN : bracket_position numérique ──────────────────────
+  // Chaque série a une bracket_position (entier 0-indexé dans sa conférence).
+  // Le vainqueur de la position p va en position floor(p/2) au tour suivant.
+  // Position paire → team1 (haut du match), impaire → team2 (bas du match).
+
+  // Si bracket_position absente (séries créées avant la migration), la déduire du seed.
+  let srcPos = series.bracket_position ?? null;
+  if (srcPos == null) {
+    const topSeed = series.team1_seed ?? state.teamSeeds[series.team1] ?? null;
+    if (topSeed != null) {
+      const confRank = topSeed <= 8 ? topSeed : topSeed - 8;
+      if (series.round === 'Premier tour') {
+        const SEED_TO_POS = { 1: 0, 4: 1, 3: 2, 2: 3 };
+        srcPos = SEED_TO_POS[confRank] ?? null;
+      } else if (series.round === 'Demi-finales') {
+        srcPos = confRank <= 2 ? 0 : 1;
+      }
+    }
+  }
+  const destPos = srcPos != null ? Math.floor(srcPos / 2) : null;
+  // Le vainqueur vient-il du slot haut (paire) ou bas (impair) du match suivant ?
+  const comesFromTop = srcPos != null ? (srcPos % 2 === 0) : null;
+
+  // Pour les Finales NBA, on utilise bracket_position de la conf (W=0, E=1)
   if (isNBAFinals) {
     const existingFinals = state.series.find(s => s.round === 'Finales NBA');
-    if (existingFinals && existingFinals.team2 === 'À déterminer') {
+    if (existingFinals) {
       skipNextSeriesRealtime += 1;
-      await sb.from('series').update({ team2: winnerTeam }).eq('id', existingFinals.id);
-    } else if (!existingFinals) {
+      // La conférence Ouest arrive en team1, Est en team2 (convention)
+      const isWest = series.conference === 'Ouest';
+      if (isWest) {
+        await sb.from('series').update({ team1: winnerTeam, team1_seed: winnerSeed ?? null }).eq('id', existingFinals.id);
+      } else {
+        await sb.from('series').update({ team2: winnerTeam, team2_seed: winnerSeed ?? null }).eq('id', existingFinals.id);
+      }
+    } else {
       skipNextSeriesRealtime += 1;
+      const isWest = series.conference === 'Ouest';
       const { data: newS } = await sb.from('series').insert({
-        team1: winnerTeam,
-        team2: 'À déterminer',
+        team1: isWest ? winnerTeam : 'À déterminer',
+        team2: isWest ? 'À déterminer' : winnerTeam,
+        team1_seed: isWest ? (winnerSeed ?? null) : null,
+        team2_seed: isWest ? null : (winnerSeed ?? null),
         round: 'Finales NBA',
         conference: '—',
         status: 'upcoming'
@@ -3109,67 +3130,39 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
     return;
   }
 
-  // ── Logique de seeding via bracket_slot ───────────────────────────
-  // Si la série source a un bracket_slot, on cible la demi-finale correspondante.
-  // Sinon, fallback sur l'ancien comportement (premier slot disponible).
-  const srcSlot = series.bracket_slot || null;
-  const destSlot = srcSlot ? BRACKET_NEXT_SLOT[srcSlot] : null;
+  // Chercher une série cible existante (même round, même conf, même bracket_position)
+  const targetSeries = destPos != null
+    ? state.series.find(s => s.round === nextRound && s.conference === conf && s.bracket_position === destPos)
+    : state.series.find(s => s.round === nextRound && s.conference === conf && (s.team1 === 'À déterminer' || s.team2 === 'À déterminer'));
 
-  if (destSlot) {
-    // Chercher la série cible par son bracket_slot
-    const targetSeries = state.series.find(s =>
-      s.round === nextRound &&
-      s.bracket_slot === destSlot
-    );
-
-    if (targetSeries) {
-      // La demi-finale existe déjà — on remplace le premier slot "À déterminer"
-      skipNextSeriesRealtime += 1;
-      if (targetSeries.team1 === 'À déterminer') {
-        await sb.from('series').update({ team1: winnerTeam }).eq('id', targetSeries.id);
-      } else if (targetSeries.team2 === 'À déterminer') {
-        await sb.from('series').update({ team2: winnerTeam }).eq('id', targetSeries.id);
-      }
+  if (targetSeries) {
+    skipNextSeriesRealtime += 1;
+    // Placer le vainqueur en team1 (haut) ou team2 (bas) selon sa provenance
+    if (comesFromTop === true || (comesFromTop === null && targetSeries.team1 === 'À déterminer')) {
+      await sb.from('series').update({ team1: winnerTeam, team1_seed: winnerSeed ?? null }).eq('id', targetSeries.id);
     } else {
-      // Créer la demi-finale avec le bon bracket_slot
-      skipNextSeriesRealtime += 1;
-      const { data: newS } = await sb.from('series').insert({
-        team1: winnerTeam,
-        team2: 'À déterminer',
-        round: nextRound,
-        conference: conf,
-        bracket_slot: destSlot,
-        status: 'upcoming'
-      }).select().single();
-      if (newS) await create7Games(newS.id);
+      await sb.from('series').update({ team2: winnerTeam, team2_seed: winnerSeed ?? null }).eq('id', targetSeries.id);
     }
   } else {
-    // Fallback : ancien comportement si pas de bracket_slot configuré
-    console.warn('[Bracket] Série sans bracket_slot — fallback sur premier slot disponible:', series.team1, 'vs', series.team2);
-    const partialSeries = state.series.find(s =>
-      s.round === nextRound &&
-      s.conference === conf &&
-      (s.team1 === 'À déterminer' || s.team2 === 'À déterminer')
-    );
-
-    if (partialSeries) {
-      skipNextSeriesRealtime += 1;
-      if (partialSeries.team1 === 'À déterminer') {
-        await sb.from('series').update({ team1: winnerTeam }).eq('id', partialSeries.id);
-      } else {
-        await sb.from('series').update({ team2: winnerTeam }).eq('id', partialSeries.id);
-      }
+    skipNextSeriesRealtime += 1;
+    const payload = {
+      round: nextRound,
+      conference: conf,
+      status: 'upcoming',
+      bracket_position: destPos ?? null,
+    };
+    // Premier arrivant : position paire → team1, impaire → team2
+    if (comesFromTop === true || comesFromTop === null) {
+      payload.team1 = winnerTeam;
+      payload.team1_seed = winnerSeed ?? null;
+      payload.team2 = 'À déterminer';
     } else {
-      skipNextSeriesRealtime += 1;
-      const { data: newS } = await sb.from('series').insert({
-        team1: winnerTeam,
-        team2: 'À déterminer',
-        round: nextRound,
-        conference: conf,
-        status: 'upcoming'
-      }).select().single();
-      if (newS) await create7Games(newS.id);
+      payload.team1 = 'À déterminer';
+      payload.team2 = winnerTeam;
+      payload.team2_seed = winnerSeed ?? null;
     }
+    const { data: newS } = await sb.from('series').insert(payload).select().single();
+    if (newS) await create7Games(newS.id);
   }
 }
 
@@ -3237,14 +3230,42 @@ async function deleteSeries(id) {
 async function addSeries(t1, t2, round, conf, startTime) {
   skipNextSeriesRealtime += 1;
 
-  const { data: newSeries, error } = await sb.from('series').insert({
-    team1: t1,
-    team2: t2,
+  // Récupérer automatiquement les seeds depuis la table team_seeds
+  const seed1 = state.teamSeeds[t1] ?? null;
+  const seed2 = state.teamSeeds[t2] ?? null;
+
+  // S'assurer que team1 est toujours la meilleure seed (le plus petit numéro)
+  let finalT1 = t1, finalT2 = t2, finalSeed1 = seed1, finalSeed2 = seed2;
+  if (seed1 != null && seed2 != null && seed2 < seed1) {
+    finalT1 = t2; finalT2 = t1;
+    finalSeed1 = seed2; finalSeed2 = seed1;
+  }
+
+  // Calculer la bracket_position pour les séries du 1er tour à partir du seed.
+  // Règle NBA : seed 1→pos 0, seed 4→pos 1, seed 3→pos 2, seed 2→pos 3
+  // (la meilleure seed est toujours team1 = finalT1)
+  let bracketPos = null;
+  if (round === 'Premier tour' && finalSeed1 != null) {
+    const topSeed = Math.min(Number(finalSeed1), Number(finalSeed2 ?? finalSeed1));
+    const SEED_TO_POS = { 1: 0, 4: 1, 3: 2, 2: 3 };
+    // Pour les seeds "globaux" (1-16), ramener au rang 1-4 dans la conférence
+    const confRank = topSeed <= 8 ? topSeed : topSeed - 8;
+    bracketPos = SEED_TO_POS[confRank] ?? null;
+  }
+
+  const insertPayload = {
+    team1: finalT1,
+    team2: finalT2,
     round,
     conference: conf,
     start_time: startTime || null,
     status: 'upcoming'
-  }).select().single();
+  };
+  if (finalSeed1 != null) insertPayload.team1_seed = Number(finalSeed1);
+  if (finalSeed2 != null) insertPayload.team2_seed = Number(finalSeed2);
+  if (bracketPos != null) insertPayload.bracket_position = bracketPos;
+
+  const { data: newSeries, error } = await sb.from('series').insert(insertPayload).select().single();
 
   if (error) {
     skipNextSeriesRealtime = Math.max(0, skipNextSeriesRealtime - 1);
@@ -4872,10 +4893,15 @@ function renderMyPickCard(s, p) {
 }
 
 function getMatchup(g, s) {
-  // team1 = meilleure seed = domicile pour M1,2,5,7 — visiteur pour M3,4,6
+  // L'equipe avec le seed le plus bas a l'avantage du terrain (M1,2,5,7 a domicile)
+  const seed1 = getTeamSeed(s.team1, s, 1);
+  const seed2 = getTeamSeed(s.team2, s, 2);
+  // Si seeds inconnus, team1 a l'avantage par defaut
+  const homeTeam = (seed1 != null && seed2 != null && seed2 < seed1) ? s.team2 : s.team1;
+  const awayTeam = (seed1 != null && seed2 != null && seed2 < seed1) ? s.team1 : s.team2;
   const homeGames = [1,2,5,7];
-  const home = homeGames.includes(Number(g.game_number)) ? s.team1 : s.team2;
-  const away = homeGames.includes(Number(g.game_number)) ? s.team2 : s.team1;
+  const home = homeGames.includes(Number(g.game_number)) ? homeTeam : awayTeam;
+  const away = homeGames.includes(Number(g.game_number)) ? awayTeam : homeTeam;
   return `${away} @ ${home}`;
 }
 
@@ -5430,11 +5456,18 @@ function renderAdminCard(s) {
   // Actually show all 7, but grey out unreachable ones
   const seriesOver = s.status === 'finished' || !!autoWinner;
 
+  const resolvedSeed1 = getTeamSeed(s.team1, s, 1);
+  const resolvedSeed2 = getTeamSeed(s.team2, s, 2);
+  const seedDisplay = (resolvedSeed1 != null && resolvedSeed2 != null)
+    ? `<span style="font-size:11px;color:var(--muted)">🏠 Avantage terrain : <strong style="color:var(--text)">${resolvedSeed1 < resolvedSeed2 ? s.team1 : s.team2}</strong> <span style="opacity:0.5">(#${Math.min(resolvedSeed1,resolvedSeed2)} vs #${Math.max(resolvedSeed1,resolvedSeed2)})</span></span>`
+    : `<span style="font-size:11px;color:var(--amber)">⚠ Équipe(s) absente(s) de team_seeds</span>`;
+
   return `<div class="card">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;flex:1">${s.team1} <span style="color:var(--muted);font-size:14px">vs</span> ${s.team2}</span>
       ${s.status==='finished'?`<span class="badge badge-green">Terminé</span>`:locked?`<span class="badge badge-amber">Verrouillé</span>`:`<span class="badge badge-blue">Ouvert</span>`}
     </div>
+    <div style="margin-bottom:10px">${seedDisplay}</div>
     ${s.status!=='finished'&&!locked?`<button class="btn btn-sm btn-block" style="margin-bottom:10px" onclick="lockSeries('${s.id}')">🔒 Verrouiller maintenant</button>`:''}
     <div style="margin-bottom:10px">
       <label>Début de la série</label>
@@ -5550,6 +5583,42 @@ function renderAdminCard(s) {
       <button class="btn btn-sm btn-danger" onclick="deleteSeries('${s.id}')">🗑 Supprimer</button>
     </div>
   </div>`;
+}
+
+function toggleEditSeeds(sid) {
+  const el = document.getElementById(`seed-edit-${sid}`);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function doUpdateSeeds(seriesId, sid) {
+  const seed1 = document.getElementById(`seed1-${sid}`)?.value;
+  const seed2 = document.getElementById(`seed2-${sid}`)?.value;
+  if (!seed1 || !seed2) return toast('Renseigne les deux seeds !');
+
+  const s1 = Number(seed1), s2 = Number(seed2);
+
+  // Si le seed2 est meilleur que seed1, on inverse team1/team2 automatiquement
+  const series = state.series.find(s => s.id === seriesId);
+  if (!series) return;
+
+  let updatePayload;
+  if (s2 < s1) {
+    // Inverser les équipes pour que la meilleure seed soit toujours team1
+    updatePayload = {
+      team1: series.team2, team1_seed: s2,
+      team2: series.team1, team2_seed: s1
+    };
+    toast('↔️ Équipes inversées automatiquement (seed ' + s2 + ' > seed ' + s1 + ')');
+  } else {
+    updatePayload = { team1_seed: s1, team2_seed: s2 };
+  }
+
+  const { error } = await sb.from('series').update(updatePayload).eq('id', seriesId);
+  if (error) return toast('❌ Erreur : ' + error.message);
+
+  await loadSeries();
+  render();
+  toast('✅ Seeds mis à jour');
 }
 
 async function adminManualSync() {
@@ -5715,6 +5784,7 @@ function renderAdminSeries() {
         <div><label>Équipe 1</label><input id="a-t1" placeholder="Boston Celtics" style="margin-top:5px"></div>
         <div><label>Équipe 2</label><input id="a-t2" placeholder="Miami Heat" style="margin-top:5px"></div>
       </div>
+
       <div class="grid2" style="margin-bottom:8px">
         <div><label>Tour</label>
           <select id="a-round" style="margin-top:5px">
@@ -6038,10 +6108,13 @@ function renderBracket() {
   // Pad arrays to expected size with nulls
   const pad = (arr, n) => [...arr, ...Array(Math.max(0, n - arr.length)).fill(null)];
 
-  const e1 = pad(r1East, 4);
-  const w1 = pad(r1West, 4);
-  const esf = pad(sfEast, 2);
-  const wsf = pad(sfWest, 2);
+  // Tri par bracket_position (0-indexé) — préserve la position verticale ESPN
+  const sortByPos = arr => [...arr].sort((a, b) => (a?.bracket_position ?? 999) - (b?.bracket_position ?? 999));
+
+  const e1  = pad(sortByPos(r1East), 4);
+  const w1  = pad(sortByPos(r1West), 4);
+  const esf = pad(sortByPos(sfEast), 2);
+  const wsf = pad(sortByPos(sfWest), 2);
   const ecf = pad(cfEast, 1);
   const wcf = pad(cfWest, 1);
 
