@@ -4653,7 +4653,7 @@ function renderPredCard(s) {
       </div>
 
       <div class="vs-block">
-        ${vsTeamHTML(s.team1)}
+        ${vsTeamHTML(s.team1, false, s.team1_seed ?? null)}
         ${showSeriesScore
           ? `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">
                <div style="display:flex;align-items:center;gap:8px">
@@ -4664,7 +4664,7 @@ function renderPredCard(s) {
                <span style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber);font-weight:700">En cours</span>
              </div>`
           : `<div class="vs-sep">VS</div>`}
-        ${vsTeamHTML(s.team2, true)}
+        ${vsTeamHTML(s.team2, true, s.team2_seed ?? null)}
       </div>
 
       ${body}
@@ -4684,7 +4684,8 @@ function renderMyPicks() {
 
   const todo = state.series.filter(s => {
     const hasPred = myPreds.some(pr => pr.series_id === s.id);
-    return !hasPred && !isLockedSeriesForMyPick(s);
+    const bothTeamsKnown = s.team1 && s.team2 && s.team1 !== 'À déterminer' && s.team2 !== 'À déterminer';
+    return !hasPred && !isLockedSeriesForMyPick(s) && bothTeamsKnown;
   }).sort((a, b) => {
     const aTime = a.start_time ? new Date(a.start_time).getTime() : Infinity;
     const bTime = b.start_time ? new Date(b.start_time).getTime() : Infinity;
@@ -5403,13 +5404,13 @@ function renderSeriesPageInner() {
         </div>
         <div style="display:flex;align-items:center;gap:10px">
           <div style="flex:1">
-            ${vsTeamHTML(s.team1)}
+            ${vsTeamHTML(s.team1, false, s.team1_seed ?? null)}
           </div>
           ${showScore
             ? scoreHTML
             : `<div class="vs-sep">VS</div>`}
           <div style="flex:1;display:flex;justify-content:flex-end">
-            ${vsTeamHTML(s.team2, true)}
+            ${vsTeamHTML(s.team2, true, s.team2_seed ?? null)}
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
@@ -6072,15 +6073,17 @@ function shortTeamName(name) {
   return map[name.toLowerCase()] || name.split(' ').pop();
 }
 
-function bkTeamRow(name, score, isWinner, isLoser) {
+function bkTeamRow(name, score, isWinner, isLoser, isHome, seed) {
   const logo = teamLogo(name);
   const cls = isWinner ? 'winner' : isLoser ? 'loser' : '';
   const scoreCls = isWinner ? 'bk-score winning' : 'bk-score';
-  return `<div class="bk-team ${cls}">
+  const homeDot = (isHome && name !== 'À déterminer') ? `<span title="Avantage du terrain" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#e53e3e;margin-left:5px;flex-shrink:0"></span>` : '';
+  return `<div class="bk-team ${cls}" style="display:flex;align-items:center">
     ${logo
       ? `<img class="bk-logo" src="${logo}" alt="" onerror="this.style.display='none'">`
       : `<div class="bk-logo-placeholder">🏀</div>`}
     <span class="bk-team-name">${name === 'À déterminer' ? 'À déterminer' : shortTeamName(name)}</span>
+    ${homeDot}
     ${score !== null ? `<span class="${scoreCls}">${score}</span>` : ''}
   </div>`;
 }
@@ -6141,11 +6144,17 @@ function bkMatchCard(series) {
   const s2 = showScore ? score2 : null;
   const clickable = finishedGames.length > 0;
 
+  // Home advantage: team with lowest seed
+  const seed1 = series.team1_seed ?? null;
+  const seed2 = series.team2_seed ?? null;
+  const home1 = (seed1 != null && seed2 != null) ? seed1 < seed2 : true;
+  const home2 = !home1;
+
   // footer est déjà une div complète — on l'identifie via un wrapper
   return `<div class="bk-match ${isFinished ? 'finished' : isLive ? 'live' : ''}${clickable ? ' bk-match-clickable' : ''}"
     ${clickable ? `onclick="openSeriesStats('${series.id}','${series.team1}','${series.team2}')" title="Voir les stats ESPN"` : ''}>
-    ${bkTeamRow(series.team1, s1, t1Win, t1Lose)}
-    ${bkTeamRow(series.team2, s2, t2Win, t2Lose)}
+    ${bkTeamRow(series.team1, s1, t1Win, t1Lose, home1, seed1)}
+    ${bkTeamRow(series.team2, s2, t2Win, t2Lose, home2, seed2)}
     <span id="bk-footer-${series.id}">${footer}</span>
   </div>`;
 }
@@ -6222,7 +6231,13 @@ function renderBracket() {
 
   return `
     <div style="padding:0 0 8px">
-      <div class="bracket-hint">← Fais défiler horizontalement →</div>
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:6px;flex-wrap:wrap">
+        <div class="bracket-hint" style="margin-bottom:0">← Fais défiler horizontalement →</div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)">
+          <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#e53e3e;flex-shrink:0"></span>
+          Avantage du terrain
+        </div>
+      </div>
       <div class="bracket-wrap">
         <div class="bracket-scroll">
           ${col(w1,   'Ouest — 1er tour')}
@@ -6279,13 +6294,14 @@ function teamLogo(name) {
   return `https://a.espncdn.com/i/teamlogos/nba/500/${code}.png`;
 }
 
-function vsTeamHTML(name, alignRight=false) {
+function vsTeamHTML(name, alignRight=false, seed=null) {
   const logo = teamLogo(name);
   return `<div class="vs-team${alignRight?' right':''}">
     ${logo
       ? `<img class="vs-team-logo" src="${logo}" alt="${name}" onerror="this.style.display='none'">`
       : ''}
     <div class="vs-team-name">${name}</div>
+    ${seed != null ? `<div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px">#${seed}</div>` : ''}
   </div>`;
 }
 
