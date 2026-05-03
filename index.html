@@ -1473,6 +1473,12 @@ let skipNextSettingsRealtime = 0;
 // ══════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════
+// ── SHA-256 (Web Crypto API) ──
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
 async function init() {
   const saved = localStorage.getItem('nba26_player');
   if (saved) try { state.currentPlayer = JSON.parse(saved); } catch(e){}
@@ -1834,6 +1840,12 @@ function renderLeaguesPanel() {
               onkeydown="if(event.key==='Enter')doCreateLeague()">
             <button class="btn btn-primary" onclick="doCreateLeague()" style="white-space:nowrap">Créer</button>
           </div>
+          <input id="league-create-secret" placeholder="🔑 Code de création" maxlength="40"
+            style="margin-top:8px;letter-spacing:0.05em;font-family:'DM Mono',monospace"
+            onkeydown="if(event.key==='Enter')doCreateLeague()">
+          <div style="font-size:11px;color:var(--muted);margin-top:5px">
+            Un code est requis pour créer une league — demande-le à l'admin
+          </div>
         </div>
 
         <!-- Join -->
@@ -1864,6 +1876,19 @@ function handleLeagueOverlayClick(e) {
 async function doCreateLeague() {
   const name = document.getElementById('league-create-name')?.value.trim();
   if (!name) return toast('Entre un nom pour ta league !');
+
+  const requiredCode = (state.settings['league_create_code'] ?? '').trim();
+  if (requiredCode) {
+    const entered = (document.getElementById('league-create-secret')?.value ?? '').trim();
+    const enteredHash = await sha256(entered);
+    const match = requiredCode.startsWith('$sha256$')
+      ? requiredCode === '$sha256$' + enteredHash
+      : entered.toLowerCase() === requiredCode.toLowerCase(); // rétrocompat si pas encore hashé
+    if (!match) {
+      return toast('❌ Code de création incorrect');
+    }
+  }
+
   closeLeaguesPanel();
   await createLeague(name);
 }
@@ -3185,12 +3210,6 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
   const nextRound = ROUND_NEXT[series.round];
   if (!nextRound) return;
 
-  const alreadyExists = state.series.find(s =>
-    s.round === nextRound &&
-    (s.team1 === winnerTeam || s.team2 === winnerTeam)
-  );
-  if (alreadyExists) return;
-
   const winnerSeed = getTeamSeed(winnerTeam, series, winnerTeam === series.team1 ? 1 : 2);
   const srcPos = series.bracket_position;
 
@@ -3222,6 +3241,14 @@ async function autoAdvanceToNextRound(series, winnerTeam) {
   const conf = isNBAFinals ? '—' : series.conference;
 
   const targetSeries = state.series.find(s => s.bracket_position === destPos);
+
+  // Vérifier si l'équipe est déjà dans le bon slot de la série cible (éviter les doublons)
+  if (targetSeries) {
+    const alreadyPlaced = placeAsTeam1
+      ? targetSeries.team1 === winnerTeam
+      : targetSeries.team2 === winnerTeam;
+    if (alreadyPlaced) return;
+  }
 
   skipNextSeriesRealtime += 1;
   if (targetSeries) {
@@ -3384,8 +3411,21 @@ async function saveSettings(updates) {
   state.settings = {};
   await loadSettings();
   computeLeaderboard();
-  toast('✅ Sauvegardé');
   render();
+  toast('✅ Sauvegardé');
+
+  // Flash visuel sur les champs de sécurité pour confirmer la sauvegarde
+  ['s-admin-code', 's-league-create-code'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.transition = 'border-color .2s, box-shadow .2s';
+    el.style.borderColor = 'var(--green)';
+    el.style.boxShadow = '0 0 0 3px rgba(29,185,84,0.2)';
+    setTimeout(() => {
+      el.style.borderColor = '';
+      el.style.boxShadow = '';
+    }, 2000);
+  });
 }
 async function adminDeletePlayer(pid, name) {
   if (!confirm(`Supprimer "${name}" et tous ses pronostics ?`)) return;
@@ -3995,13 +4035,10 @@ function renderLeaderboardTrendChart() {
 
     const d = pts.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i)} ${yAt(v)}`).join(' ');
 
-    const dots = pts.map((v, i) => `
-      <circle class="chart-dot-${chartId}" data-pidx="${idx}" cx="${xAt(i)}" cy="${yAt(v)}" r="3" fill="${color}" />
-    `).join('');
+    
 
     return `
       <path class="chart-line-${chartId}" data-pidx="${idx}" d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" ${dashAttr} style="transition:opacity .2s,stroke-width .2s" />
-      ${dots}
     `;
   }).join('');
 
@@ -4058,7 +4095,6 @@ function renderLeaderboardTrendChart() {
 
 function toggleChartLine(chartId, pidx, total) {
   const lines = document.querySelectorAll(`.chart-line-${chartId}`);
-  const dots  = document.querySelectorAll(`.chart-dot-${chartId}`);
   const items = document.querySelectorAll(`.chart-legend-item-${chartId}`);
 
   // Si ce joueur est déjà isolé (seul visible), on réinitialise tout
@@ -4069,7 +4105,6 @@ function toggleChartLine(chartId, pidx, total) {
   if (onlyThisActive) {
     // Réinitialiser tout
     lines.forEach(el => { el.style.opacity = '1'; el.style.strokeWidth = '2.2'; });
-    dots.forEach(el => { el.style.opacity = '1'; });
     items.forEach(el => { el.style.border = '1px solid transparent'; el.style.background = 'transparent'; el.style.opacity = '1'; });
   } else {
     // Isoler ce joueur
@@ -4077,9 +4112,6 @@ function toggleChartLine(chartId, pidx, total) {
       const active = i === pidx;
       el.style.opacity = active ? '1' : '0.08';
       el.style.strokeWidth = active ? '3' : '2.2';
-    });
-    dots.forEach(el => {
-      el.style.opacity = el.dataset.pidx == pidx ? '1' : '0.08';
     });
     items.forEach((el, i) => {
       const active = i === pidx;
@@ -5484,18 +5516,22 @@ function setAP(p){
 async function checkAdmin() {
   const input = document.getElementById('admin-code-input');
   const code = (input?.value || '').trim();
+
+  if (!code) return toast('❌ Entre le code admin');
+
   const storedRaw = state.settings['admin_password'];
   const stored = String(storedRaw ?? '').trim();
-
-  console.log('admin typed =', code);
-  console.log('admin stored =', storedRaw, '=> normalized =', stored);
 
   if (!stored) {
     toast("❌ Aucun mot de passe admin n'est configuré");
     return;
   }
 
-  if (code === stored) {
+  // Comparer en hashant ce que l'utilisateur a tapé
+  const hashed = await sha256(code);
+  const match = stored.startsWith('$sha256$') ? stored === '$sha256$' + hashed : code === stored;
+
+  if (match) {
     state.adminAuthed = true;
     state.currentPage = 'admin';
     render();
@@ -5987,7 +6023,14 @@ function renderAdminSettings() {
           <div style="font-size:14px;font-weight:600">Code administrateur</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px">Requis pour accéder à cet onglet</div>
         </div>
-        <input id="s-admin-code" type="text" value="${g('admin_password')}" style="width:120px;text-align:center">
+        <input id="s-admin-code" type="password" placeholder="${g('admin_password') ? '••••••••' : 'Définir un code'}" style="width:120px;text-align:center">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0">
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:600">Code de création de league</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Requis pour créer une nouvelle league · laisse vide pour désactiver la création</div>
+        </div>
+        <input id="s-league-create-code" type="password" placeholder="${g('league_create_code') ? '••••••••' : 'Aucun code (création libre)'}" style="width:120px;text-align:center">
       </div>
       <button class="btn btn-primary btn-block" style="margin-top:12px" onclick="doSaveSettings()">💾 Sauvegarder</button>
     </div>
@@ -6045,7 +6088,10 @@ async function doSaveSettings() {
   if (msf) updates['points_mvp_demi_finales'] = parseInt(msf.value);
   if (mcf) updates['points_mvp_finales_conference'] = parseInt(mcf.value);
   if (mfn) updates['points_mvp_finales_nba'] = parseInt(mfn.value);
-  if (ac)  updates['admin_password'] = ac.value;
+  if (ac && ac.value.trim())  updates['admin_password'] = '$sha256$' + await sha256(ac.value.trim());
+  const lcc = document.getElementById('s-league-create-code');
+  if (lcc && lcc.value.trim()) updates['league_create_code'] = '$sha256$' + await sha256(lcc.value.trim());
+  else if (lcc && lcc.value.trim() === '') updates['league_create_code'] = '';
 
   await saveSettings(updates);
 }
