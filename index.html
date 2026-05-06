@@ -4022,11 +4022,7 @@ function renderLeaderboardTrendChart() {
     `;
   }).join('');
 
-  const xLabels = timeline.map((step, i) => `
-    <text x="${xAt(i)}" y="${height - 8}" text-anchor="middle" font-size="9" fill="rgba(200,205,240,0.45)">
-      ${i % 2 === 0 ? i + 1 : ''}
-    </text>
-  `).join('');
+  const xLabels = '';
 
   // CHART_PALETTE est déclarée globalement plus bas
   // Dash patterns variés pour différencier même si deux couleurs se ressemblent
